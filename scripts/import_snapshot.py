@@ -122,7 +122,7 @@ def run_import(args):
         print("NOT ACTIVE. Inspect audit.import_issues and coverage before --activate.")
     return sid
 
-def activate(sid):
+def activate(sid,allow_errors=False):
     connstr=os.environ.get("DATABASE_URL")
     if not connstr:
         raise SystemExit("Set DATABASE_URL")
@@ -133,6 +133,10 @@ def activate(sid):
                 row=cur.fetchone()
                 if not row or row[0] not in ("validated","active"):
                     raise SystemExit("Snapshot must be validated")
+                cur.execute("SELECT count(*) FROM audit.import_issues WHERE snapshot_id=%s AND severity='error'",(sid,))
+                errors=cur.fetchone()[0]
+                if errors and not allow_errors:
+                    raise SystemExit(f"{errors} import errors: inspect audit.import_issues. --allow-errors requires manual review")
                 cur.execute("UPDATE audit.snapshots SET state='validated' WHERE state='active' AND id<>%s",(sid,))
                 cur.execute("UPDATE audit.snapshots SET state='active',activated_at=now() WHERE id=%s",(sid,))
     print("Activated",sid)
@@ -142,9 +146,10 @@ if __name__=="__main__":
     ap.add_argument("--date",help="Weekly snapshot date YYYY-MM-DD")
     ap.add_argument("--input",default="entrada")
     ap.add_argument("--activate",type=int,help="Explicitly activate an already validated snapshot")
+    ap.add_argument("--allow-errors",action="store_true",help="Override after manual review")
     args=ap.parse_args()
     if args.activate is not None:
-        activate(args.activate)
+        activate(args.activate,args.allow_errors)
     elif args.date:
         run_import(args)
     else:
