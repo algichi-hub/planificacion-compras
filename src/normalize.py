@@ -72,8 +72,8 @@ def repair_extra_fields(fields, expected, separator, source_name):
             decimal_es(candidate[11])
             date_es(candidate[12])
         elif source_name=="Recepciones_Sevilla.csv":
-            decimal_es(candidate[20])
-            decimal_es(candidate[21])
+            decimal_receipt(candidate[20])
+            decimal_receipt(candidate[21])
             if clean(candidate[26]) not in ("Todo aprobado","Libre","Conciliado"):
                 return None
         elif source_name=="INC_FAS.csv":
