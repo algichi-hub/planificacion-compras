@@ -96,11 +96,18 @@ with tab2:
         st.download_button("Exportar trazabilidad CSV",trace.to_csv(index=False,sep=";",decimal=",").encode("utf-8-sig"),
                            file_name="trazabilidad_sc.csv",mime="text/csv")
 with tab3:
+    st.subheader("REAC asociados a SC")
+    reac=query("""SELECT r.sc_no,r.sc_pos,r.po_no,r.po_pos,r.reac_no,r.reac_article
+                  FROM core.reac_refs r WHERE r.snapshot_id=%s
+                  ORDER BY r.sc_no,r.sc_pos LIMIT 3000""",(sid,))
+    st.dataframe(reac,use_container_width=True,hide_index=True)
+    st.caption("REAC referido en el extracto SC; no se asigna automáticamente una cantidad rechazada.")
+    st.subheader("Incidencias de almacén")
     incidents=query("""SELECT record_no,sequence_no,po_no,po_pos,article,category,resolved,detail
                         FROM core.incidents WHERE snapshot_id=%s
                         ORDER BY record_no DESC LIMIT 3000""",(sid,))
     st.dataframe(incidents,use_container_width=True,hide_index=True)
-    st.caption("REAC: las referencias de SC_FAS se conservan en raw.source_rows; la atribución a recepciones necesita validación.")
+    st.caption("Las incidencias sin posición fiable no se asignan automáticamente a una recepción.")
 with tab4:
     issues=query("""SELECT source_name,line_number,severity,issue_code,details FROM audit.import_issues
                     WHERE snapshot_id=%s ORDER BY CASE severity WHEN 'error' THEN 0 ELSE 1 END,id LIMIT 5000""",(sid,))
