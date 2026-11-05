@@ -9,7 +9,7 @@ def parse_sc(row):
         "description":v(9),"project":v(1),"centre":v(2),"director":v(3),
         "requested":decimal_es(v(11)),"required":date_es(v(13)),
         "po_no":v(16),"po_pos":v(17),"ordered":decimal_es(v(19)),
-        "vendor":v(23),"planned":date_es(v(27)),
+        "vendor":v(23),"planned":date_es(v(27)), "reac":v(14), "reac_article":v(15),
     }
 
 def parse_receipt(row):
