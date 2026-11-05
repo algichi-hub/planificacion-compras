@@ -1,7 +1,7 @@
 """Conservative reconciliation: ambiguous source values are not invented."""
 from collections import defaultdict
 from decimal import Decimal
-from .normalize import clean,decimal_es,date_es,indexed,is_real_po
+from .normalize import clean,decimal_es,decimal_receipt,date_es,indexed,is_real_po
 
 def parse_sc(row):
     v=lambda i:indexed(row,i)
@@ -18,7 +18,7 @@ def parse_receipt(row):
     return {
         "po_no":v(0),"po_pos":v(1),"article":v(10),
         "receipt_no":v(19),"receipt_date":date_es(v(14)),
-        "delivered":decimal_es(v(20)),"approved":decimal_es(v(21)),
+        "delivered":decimal_receipt(v(20)),"approved":decimal_receipt(v(21)),
         "status":v(26),
     }
 
