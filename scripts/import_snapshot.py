@@ -13,6 +13,7 @@ from src.normalize import iter_source,decimal_es,date_es,is_real_po
 from src.reconcile import parse_sc,parse_receipt,parse_incident,summarize_sc,summarize_po
 
 SOURCES={"SC_FAS.csv":"|","INC_FAS.csv":";","Recepciones_Sevilla.csv":";"}
+IMPORTER_REVISION="p2_receipt_decimal_dot_v1"
 
 def sha256(path):
     h=hashlib.sha256()
@@ -42,8 +43,8 @@ def run_import(args):
     with psycopg.connect(connstr) as db:
         with db.transaction():
             with db.cursor() as cur:
-                cur.execute("INSERT INTO audit.snapshots(snapshot_date,source_hashes) VALUES (%s,%s::jsonb) RETURNING id",
-                            (args.date,__import__("json").dumps(hashes)))
+                cur.execute("INSERT INTO audit.snapshots(snapshot_date,source_hashes,importer_revision) VALUES (%s,%s::jsonb,%s) RETURNING id",
+                            (args.date,__import__("json").dumps(hashes),IMPORTER_REVISION))
                 sid=cur.fetchone()[0]
                 for source,separator in SOURCES.items():
                     total=valid=bad=0
@@ -145,10 +146,12 @@ def activate(sid,allow_errors=False):
     with psycopg.connect(connstr) as db:
         with db.transaction():
             with db.cursor() as cur:
-                cur.execute("SELECT state FROM audit.snapshots WHERE id=%s FOR UPDATE",(sid,))
+                cur.execute("SELECT state,importer_revision FROM audit.snapshots WHERE id=%s FOR UPDATE",(sid,))
                 row=cur.fetchone()
                 if not row or row[0] not in ("validated","active"):
                     raise SystemExit("Snapshot must be validated")
+                if row[1]!=IMPORTER_REVISION:
+                    raise SystemExit("Snapshot uses an outdated importer revision; reimport the original CSV files before activation")
                 cur.execute("SELECT count(*) FROM audit.import_issues WHERE snapshot_id=%s AND severity='error'",(sid,))
                 errors=cur.fetchone()[0]
                 if errors and not allow_errors:
