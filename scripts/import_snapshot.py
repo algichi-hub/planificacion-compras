@@ -57,6 +57,9 @@ def run_import(args):
                                 issue_rows.append((sid,source,ln,"error","MALFORMED_ROW",error))
                                 continue
                             valid+=1
+                            if any("\ufffd" in str(value) for value in record.values()):
+                                issue_rows.append((sid,source,ln,"warning","INVALID_ENCODING_BYTE",
+                                                   "Undefined CP1252 byte replaced during decoding; inspect original file"))
                             yield ln,record
                     if source=="SC_FAS.csv":
                         def sc_raw():
