@@ -1,5 +1,6 @@
 """Conservative reconciliation: ambiguous source values are not invented."""
 from collections import defaultdict
+from decimal import Decimal
 from .normalize import clean,decimal_es,date_es,indexed,is_real_po
 
 def parse_sc(row):
@@ -39,31 +40,31 @@ def summarize_sc(records):
     for key,rows in groups.items():
         vals={r["requested"] for r in rows}
         first=rows[0]
-        if len(vals)==1:
+        po_keys={(r.get("po_no"),r.get("po_pos")) for r in rows}
+        articles={r.get("article") for r in rows}
+        valid_allocations=(
+            len(rows)>1
+            and len(po_keys)==len(rows)
+            and len(articles)==1
+            and all(
+                is_real_po(r.get("po_no"))
+                and bool(r.get("po_pos"))
+                and r["requested"] is not None
+                and r["requested"]>=0
+                and r.get("ordered") is not None
+                and r["requested"]==r["ordered"]
+                for r in rows
+            )
+        )
+        if valid_allocations:
+            qty=sum((r["requested"] for r in rows),start=Decimal(0))
+            status="verified_allocated_sum"
+        elif len(vals)==1:
             qty=next(iter(vals))
             status="verified" if qty is not None else "ambiguous_requested_qty"
         else:
-            po_keys={(r["po_no"],r["po_pos"]) for r in rows}
-            articles={r["article"] for r in rows}
-            valid_allocations=(
-                len(po_keys)==len(rows)
-                and len(articles)==1
-                and all(
-                    is_real_po(r["po_no"])
-                    and bool(r["po_pos"])
-                    and r["requested"] is not None
-                    and r["requested"]>=0
-                    and r["ordered"] is not None
-                    and r["requested"]==r["ordered"]
-                    for r in rows
-                )
-            )
-            if valid_allocations:
-                qty=sum((r["requested"] for r in rows),start=__import__("decimal").Decimal(0))
-                status="verified_allocated_sum"
-            else:
-                qty=None
-                status="ambiguous_requested_qty"
+            qty=None
+            status="ambiguous_requested_qty"
         yield key,first,qty,status
 
 def summarize_po(records):
