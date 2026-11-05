@@ -131,6 +131,16 @@ def run_import(args):
                 for k,sample,qty,status in po_keys:
                     if status!="verified":
                         issue_rows.append((sid,"SC_FAS.csv",None,"warning",status,f"PO {k}: conflicting or missing ordered quantities"))
+                cur.execute("""
+                    SELECT company,sc_no,sc_pos,requested_qty,approved_qty
+                    FROM planning.v_sc_coverage
+                    WHERE snapshot_id=%s AND approved_qty>requested_qty
+                """,(sid,))
+                for comp,sc,pos,requested,approved in cur.fetchall():
+                    issue_rows.append((
+                        sid,"Recepciones_Sevilla.csv",None,"warning","APPROVED_EXCEEDS_REQUESTED",
+                        f"SC {comp}/{sc}/{pos}: requested={requested}, approved={approved}"
+                    ))
                 copy_rows(cur,"audit.import_issues",["snapshot_id","source_name","line_number","severity","issue_code","details"],issue_rows)
                 cur.execute("UPDATE audit.snapshots SET state='validated' WHERE id=%s",(sid,))
         print("Validated snapshot",sid,"date",args.date)
