@@ -83,3 +83,39 @@ def test_missing_po_identifier_does_not_auto_aggregate():
     result=list(summarize_sc([_allocation(2,2,"17",po="0"),_allocation(1,1,"18")]))[0]
     assert result[2] is None
     assert result[3]=="ambiguous_requested_qty"
+
+from src.normalize import decimal_receipt
+from src.reconcile import parse_receipt
+import pytest
+
+def test_receipt_decimal_dot_preserves_fraction():
+    assert decimal_receipt("21335.986") == Decimal("21335.986")
+    assert decimal_receipt("3.5") == Decimal("3.5")
+    assert decimal_receipt("  12  ") == Decimal("12")
+    assert decimal_receipt("-0.125") == Decimal("-0.125")
+    assert decimal_receipt("") is None
+
+def test_receipt_decimal_rejects_comma_and_non_finite():
+    for raw in ("1,250", "1.234,56", "NaN", "Inf", "invalid"):
+        with pytest.raises(ValueError):
+            decimal_receipt(raw)
+
+def test_sc_decimal_comma_unchanged_after_p2_fix():
+    assert decimal_es("21335,986") == Decimal("21335.986")
+    assert decimal_es("1.234,50") == Decimal("1234.50")
+
+def test_receipt_real_world_p2_regression():
+    cols=[""]*28
+    cols[0]="802418"
+    cols[1]="11"
+    cols[10]="6145000005"
+    cols[14]="08/01/26"
+    cols[19]="749488"
+    cols[20]="21335.986"
+    cols[21]="21335.986"
+    cols[26]="Todo aprobado"
+    row={str(i):value for i,value in enumerate(cols)}
+    parsed=parse_receipt(row)
+    assert parsed["approved"]==Decimal("21335.986")
+    assert parsed["delivered"]==Decimal("21335.986")
+    assert parsed["approved"] == Decimal("21335.9860")
