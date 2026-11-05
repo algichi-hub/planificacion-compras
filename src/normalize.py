@@ -18,6 +18,26 @@ def decimal_es(value):
     except InvalidOperation as exc:
         raise ValueError(f"invalid decimal: {value!r}") from exc
 
+
+def decimal_receipt(value):
+    """Receive-quantity parser: decimal dot in Recepciones_Sevilla.csv.
+
+    This ERP extract uses dot for decimals in delivered/approved quantities,
+    unlike SC_FAS which uses comma. Never strip a decimal point as grouping.
+    """
+    v=clean(value).replace(" ","").replace("\\u00a0","")
+    if not v:
+        return None
+    if "," in v:
+        raise ValueError(f"unexpected comma in reception quantity: {value!r}")
+    try:
+        result=Decimal(v)
+    except InvalidOperation as exc:
+        raise ValueError(f"invalid reception quantity: {value!r}") from exc
+    if not result.is_finite():
+        raise ValueError(f"nonfinite reception quantity: {value!r}")
+    return result
+
 def date_es(value):
     v = clean(value)
     if not v:
