@@ -57,6 +57,9 @@ def run_import(args):
                                 issue_rows.append((sid,source,ln,"error","MALFORMED_ROW",error))
                                 continue
                             valid+=1
+                            repair_note=record.pop("__repair_info__",None)
+                            if repair_note:
+                                issue_rows.append((sid,source,ln,"warning","DELIMITER_REPAIRED",repair_note))
                             if any("\ufffd" in str(value) for value in record.values()):
                                 issue_rows.append((sid,source,ln,"warning","INVALID_ENCODING_BYTE",
                                                    "Undefined CP1252 byte replaced during decoding; inspect original file"))
