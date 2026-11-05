@@ -31,7 +31,7 @@ def date_es(value):
 
 def iter_source(path, delimiter, encoding="cp1252"):
     """Yield (physical_line, fields, error). Never silently discard a malformed row."""
-    with Path(path).open("r",encoding=encoding,newline="") as fh:
+    with Path(path).open("r",encoding=encoding,errors="replace",newline="") as fh:
         reader=csv.reader(fh,delimiter=delimiter)
         header=next(reader)
         header=[clean(x) for x in header]
