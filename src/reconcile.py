@@ -27,14 +27,44 @@ def parse_incident(row):
             "article":v(5),"detail":v(12),"resolved":v(19),"category":v(20)}
 
 def summarize_sc(records):
-    """SC quantity is trustworthy only when all repeated values agree."""
+    """Determine SC demand, distinguishing repeated totals from PO allocations.
+
+    A variable requested quantity is summed only when every row is an
+    individually identified PO allocation, with matching order quantities
+    and consistent article. Otherwise the demand remains indeterminate.
+    """
     groups=defaultdict(list)
     for r in records:
         groups[(r["company"],r["sc_no"],r["sc_pos"])].append(r)
     for key,rows in groups.items():
         vals={r["requested"] for r in rows}
-        qty=next(iter(vals)) if len(vals)==1 else None
-        yield key,rows[0],qty,"verified" if len(vals)==1 and qty is not None else "ambiguous_requested_qty"
+        first=rows[0]
+        if len(vals)==1:
+            qty=next(iter(vals))
+            status="verified" if qty is not None else "ambiguous_requested_qty"
+        else:
+            po_keys={(r["po_no"],r["po_pos"]) for r in rows}
+            articles={r["article"] for r in rows}
+            valid_allocations=(
+                len(po_keys)==len(rows)
+                and len(articles)==1
+                and all(
+                    is_real_po(r["po_no"])
+                    and bool(r["po_pos"])
+                    and r["requested"] is not None
+                    and r["requested"]>=0
+                    and r["ordered"] is not None
+                    and r["requested"]==r["ordered"]
+                    for r in rows
+                )
+            )
+            if valid_allocations:
+                qty=sum((r["requested"] for r in rows),start=__import__("decimal").Decimal(0))
+                status="verified_allocated_sum"
+            else:
+                qty=None
+                status="ambiguous_requested_qty"
+        yield key,first,qty,status
 
 def summarize_po(records):
     groups=defaultdict(list)
