@@ -108,6 +108,16 @@ def run_import(args):
                     ((sid,comp,sc,scpos,po,popos,None,
                       "verified" if len(po_owners[(po,popos)])==1 and po_status.get((comp,po,popos))=="verified" else "ambiguous")
                      for comp,sc,scpos,po,popos in sorted(distinct_links)))
+                reac_keys={
+                    (r["company"],r["sc_no"],r["sc_pos"],
+                     r["po_no"] if is_real_po(r["po_no"]) else "",
+                     r["po_pos"] if is_real_po(r["po_no"]) else "",
+                     r["reac"],r["reac_article"])
+                    for r in sc_records if r.get("reac") and r["reac"] not in ("0","000000")
+                }
+                copy_rows(cur,"core.reac_refs",
+                    ["snapshot_id","company","sc_no","sc_pos","po_no","po_pos","reac_no","reac_article"],
+                    ((sid,*r) for r in sorted(reac_keys)))
                 for k,sample,qty,status in sc_keys:
                     if status!="verified":
                         issue_rows.append((sid,"SC_FAS.csv",None,"warning",status,f"SC {k}: conflicting or missing requested quantities"))
