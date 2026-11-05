@@ -15,6 +15,10 @@ from src.reconcile import parse_sc,parse_receipt,parse_incident,summarize_sc,sum
 SOURCES={"SC_FAS.csv":"|","INC_FAS.csv":";","Recepciones_Sevilla.csv":";"}
 IMPORTER_REVISION="p2_receipt_decimal_dot_v1"
 
+def ensure_current_importer(revision):
+    if revision != IMPORTER_REVISION:
+        raise ValueError("Snapshot uses an outdated importer revision; reimport original CSV files")
+
 def sha256(path):
     h=hashlib.sha256()
     with open(path,"rb") as fp:
@@ -160,8 +164,10 @@ def activate(sid,allow_errors=False):
                 row=cur.fetchone()
                 if not row or row[0] not in ("validated","active"):
                     raise SystemExit("Snapshot must be validated")
-                if row[1]!=IMPORTER_REVISION:
-                    raise SystemExit("Snapshot uses an outdated importer revision; reimport the original CSV files before activation")
+                try:
+                    ensure_current_importer(row[1])
+                except ValueError as exc:
+                    raise SystemExit(str(exc)) from exc
                 cur.execute("SELECT count(*) FROM audit.import_issues WHERE snapshot_id=%s AND severity='error'",(sid,))
                 errors=cur.fetchone()[0]
                 if errors and not allow_errors:
