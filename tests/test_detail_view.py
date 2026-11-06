@@ -52,4 +52,4 @@ def test_vertical_supplementary_records_preserve_each_incident():
     assert view.loc[view.Campo=="Número INC","Valor"].tolist()==["INC-A","INC-B"]
     assert view.loc[view.Campo=="INC 1"].shape[0]==1
     assert view.loc[view.Campo=="INC 2"].shape[0]==1
-    assert view.loc[view.Campo=="Categoría","Valor"].tolist()==["Falta Documentación","Pendiente Aprobación"]
+    assert view.loc[view.Campo=="Categoria","Valor"].tolist()==["Falta Documentación","Pendiente Aprobación"]
