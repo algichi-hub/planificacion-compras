@@ -56,16 +56,28 @@ if project!="Todos":
     params.append(project)
 
 tab1,tab2,tab3,tab4=st.tabs(["Resumen","Seguimiento SC","REAC / Incidencias","Calidad de datos"])
+has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
+workflow_ready=False
+if has_workflow_table:
+    workflow_ready=bool(query("SELECT EXISTS(SELECT 1 FROM planning.sc_workflow_status WHERE snapshot_id=%s) AS ready",(sid,)).iloc[0]["ready"])
 with tab1:
-    metrics=query("SELECT count(*) AS n_sc, count(*) FILTER (WHERE coverage_state='complete') AS completas, count(*) FILTER (WHERE coverage_state='partial') AS parciales, count(*) FILTER (WHERE coverage_state='pending_reconciliation') AS inciertas FROM planning.v_sc_coverage WHERE "+where,tuple(params))
-    if not metrics.empty:
-        m=metrics.iloc[0]
-        for col,(label,value) in zip(st.columns(4),[("Líneas SC",m.n_sc),("Cobertura completa",m.completas),("Cobertura parcial",m.parciales),("Sin conciliar",m.inciertas)]):
-            col.metric(label,int(value))
-    states=query("SELECT coverage_state,count(*) AS n FROM planning.v_sc_coverage WHERE "+where+" GROUP BY coverage_state ORDER BY n DESC",tuple(params))
-    if not states.empty:
-        st.plotly_chart(px.bar(states,x="coverage_state",y="n",title="Situación de cobertura por línea SC",labels={"coverage_state":"Estado","n":"Líneas"}),use_container_width=True)
-    st.caption("La métrica cuenta líneas SC. No suma unidades de artículos distintos entre sí.")
+    if workflow_ready:
+        states=query("SELECT workflow_state,count(*) AS n FROM planning.sc_workflow_status WHERE "+where+" GROUP BY workflow_state ORDER BY n DESC",tuple(params))
+        total=int(states["n"].sum()) if not states.empty else 0
+        cancelled=int(states.loc[states.workflow_state=="SC anulada","n"].sum()) if not states.empty else 0
+        complete=int(states.loc[states.workflow_state=="Completado","n"].sum()) if not states.empty else 0
+        uncertain=int(states.loc[states.workflow_state=="Pendiente conciliación","n"].sum()) if not states.empty else 0
+        for col,(label,value) in zip(st.columns(4),[("Líneas SC",total),("Completadas",complete),("SC anuladas",cancelled),("Pendientes conciliación",uncertain)]):
+            col.metric(label,value)
+        st.plotly_chart(px.bar(states,x="workflow_state",y="n",title="Estado de tramitación por línea SC",labels={"workflow_state":"Estado","n":"Líneas SC"}),use_container_width=True)
+        st.caption("Las SC anuladas no se computan como pendientes de pedido. Estados basados en evidencias del snapshot.")
+    else:
+        st.info("Clasificación operativa pendiente de cálculo para este snapshot. Ejecuta la migración 007 y scripts/build_sc_workflow.py --snapshot ID --commit.")
+        metrics=query("SELECT count(*) AS n_sc, count(*) FILTER (WHERE coverage_state='complete') AS completas, count(*) FILTER (WHERE coverage_state='partial') AS parciales, count(*) FILTER (WHERE coverage_state='pending_reconciliation') AS inciertas FROM planning.v_sc_coverage WHERE "+where,tuple(params))
+        if not metrics.empty:
+            m=metrics.iloc[0]
+            for col,(label,value) in zip(st.columns(4),[("Líneas SC",m.n_sc),("Cobertura completa",m.completas),("Cobertura parcial",m.parciales),("Sin conciliar",m.inciertas)]):
+                col.metric(label,int(value))
 with tab2:
     search=st.text_input("Buscar SC, artículo o pedido","",key="sc_search",placeholder="Número SC o artículo")
     conditions="s.snapshot_id=%s"
@@ -75,7 +87,10 @@ with tab2:
     if search.strip():
         conditions+=" AND (s.sc_no ILIKE %s OR s.article ILIKE %s OR EXISTS (SELECT 1 FROM core.sc_po_links l WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos AND l.po_no ILIKE %s))"
         values.extend(["%"+search.strip()+"%"]*3)
-    overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,s.coverage_state,s.coverage_pct FROM planning.v_sc_coverage s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
+    if workflow_ready:
+        overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,s.workflow_state,s.workflow_issue FROM planning.sc_workflow_status s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
+    else:
+        overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,s.coverage_state,s.coverage_pct FROM planning.v_sc_coverage s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
     st.dataframe(overview,use_container_width=True,hide_index=True)
     if len(overview)==2000:
         st.warning("Se muestran las primeras 2.000 líneas. Refina la búsqueda para ver el resto.")
