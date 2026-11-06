@@ -39,3 +39,23 @@ def test_cutoff_valid(value):
 def test_cutoff_invalid(value):
     with pytest.raises(ValueError,match="--from"):
         importer.parse_cutoff(value)
+
+def test_filter_scope_preserves_all_positions_for_selected_sc():
+    chosen={("210","720001")}
+    po={("800788","17"),("800788","18")}
+    a=rec("210","720001","20/01/25")
+    b=rec("210","720002","20/01/25")
+    assert importer.in_approval_scope("SC_FAS.csv",a,chosen,po)
+    assert not importer.in_approval_scope("SC_FAS.csv",b,chosen,po)
+    receipt={f"k__{i}":v for i,v in enumerate(["800788","18"]+[""]*26)}
+    assert importer.in_approval_scope("Recepciones_Sevilla.csv",receipt,chosen,po)
+    receipt2={f"k__{i}":v for i,v in enumerate(["800789","18"]+[""]*26)}
+    assert not importer.in_approval_scope("Recepciones_Sevilla.csv",receipt2,chosen,po)
+    incident={f"k__{i}":v for i,v in enumerate(["","","800788","17"]+[""]*24)}
+    assert importer.in_approval_scope("INC_FAS.csv",incident,chosen,po)
+    incident2={f"k__{i}":v for i,v in enumerate(["","","800788","19"]+[""]*24)}
+    assert not importer.in_approval_scope("INC_FAS.csv",incident2,chosen,po)
+
+def test_no_cutoff_keeps_every_source():
+    for src in importer.SOURCES:
+        assert importer.in_approval_scope(src,{},None,set())
