@@ -42,9 +42,9 @@ def test_vertical_trace_groups_two_receipts_and_order_without_receipt():
     assert view.loc[view.Campo=="Cantidad pedida","Valor"].tolist()==["4,000000","24,000000"]
     receptions=receptions_table(original)
     assert receptions.loc[receptions.Campo=="Recepción 1","Valor"].tolist()==[
-        "762514 (01/10/2026, Re: —, Ap: 0, En: 1)"]
+        "762514 (01/10/2026, Re: 1, Ap: 0, En: 1)"]
     assert receptions.loc[receptions.Campo=="Recepción 2","Valor"].tolist()==[
-        "767054 (05/10/2026, Re: —, Ap: 0, En: 4)"]
+        "767054 (05/10/2026, Re: 4, Ap: 0, En: 4)"]
     assert "Movimiento 1" not in view.Campo.tolist()
     assert "Estado recepción" not in view.Campo.tolist()
     assert "Estado vínculo" not in view.Campo.tolist()
@@ -66,9 +66,9 @@ def test_single_and_repeated_receipt_number_are_not_merged():
     ])
     view=receptions_table(frame)
     assert view.loc[view.Campo=="Recepción 1","Valor"].iloc[0]==(
-        "000123 (06/11/2026, Re: —, Ap: 100, En: 120,5)")
+        "000123 (06/11/2026, Re: 120,5, Ap: 100, En: 120,5)")
     assert view.loc[view.Campo=="Recepción 2","Valor"].iloc[0]==(
-        "000123 (07/11/2026, Re: —, Ap: 0, En: 10,25)")
+        "000123 (07/11/2026, Re: 10,25, Ap: 0, En: 10,25)")
     assert len(view.loc[view.Campo.str.startswith("Recepción")])==2
     assert len(receptions_table(frame.iloc[:1]).loc[
         lambda df: df.Campo.str.startswith("Recepción")])==1
@@ -127,15 +127,15 @@ def test_planned_date_text_only_semantic_colors_on_boundaries():
         ("22/12/2026", "#15803D"), # far away
     ]
     for value,color in cases:
-        styles=detail_row_style(pd.Series({"Campo":"Fecha planificada","Valor":value}), today)
+        styles=detail_row_style(pd.Series({"Campo":"Fecha planificada","Valor":value}), today, "Material sin recibir")
         assert len(styles)==2
         assert all(f"color: {color}" in x and "font-weight: bold" in x
                    and "background" not in x for x in styles)
-    assert detail_row_style(pd.Series({"Campo":"Fecha planificada","Valor":"—"}),today)==["",""]
+    assert detail_row_style(pd.Series({"Campo":"Fecha planificada","Valor":"—"}),today,"Material sin recibir")==["",""]
     assert detail_row_style(pd.Series({"Campo":"Proveedor","Valor":"05/11/2026"}),today)==["",""]
 
 
-def test_optional_received_quantity_is_never_guessed_from_delivered():
+def test_received_quantity_uses_delivery_source_when_no_independent_field():
     frame=pd.DataFrame([
         {"pedido":"X","posicion_pedido":"1","parte_recepcion":"RX",
          "fecha_recepcion":date(2026,11,6),"cantidad_entregada":Decimal("12"),
@@ -146,7 +146,7 @@ def test_optional_received_quantity_is_never_guessed_from_delivered():
     ])
     result=receptions_table(frame)
     assert result.loc[result.Campo=="Recepción 1","Valor"].iloc[0] == (
-        "RX (06/11/2026, Re: —, Ap: 8, En: 12)")
+        "RX (06/11/2026, Re: 12, Ap: 8, En: 12)")
     assert result.loc[result.Campo=="Recepción 2","Valor"].iloc[0] == (
         "RY (07/11/2026, Re: 10,5, Ap: 8, En: 12)")
 
@@ -166,4 +166,23 @@ def test_receipts_group_by_po_and_retain_duplicate_numbers():
     view=receptions_table(frame)
     assert view.Campo.tolist()==["Pedido/pos","Recepción 1","Recepción 2","Pedido/pos","Recepción 1"]
     assert view.loc[view.Campo=="Pedido/pos","Valor"].tolist()==["A/10","B/20"]
-    assert view.loc[view.Campo=="Recepción 2","Valor"].tolist()==["00001 (02/11/2026, Re: —, Ap: 4, En: 6)"]
+    assert view.loc[view.Campo=="Recepción 2","Valor"].tolist()==["00001 (02/11/2026, Re: 6, Ap: 4, En: 6)"]
+
+
+def test_dates_ignored_for_other_sc_workflow_states():
+    row=pd.Series({"Campo":"Fecha planificada","Valor":"05/11/2026"})
+    today=date(2026,11,6)
+    for state in ("Completado","Pendiente pedido","Pendiente aprobación",
+                  "Parcialmente aprobadas","SC anulada","Pendiente conciliación",None):
+        assert detail_row_style(row,today,state)==["",""]
+    assert all("#B91C1C" in x for x in detail_row_style(
+        row,today,"Material sin recibir"))
+
+
+def test_main_sc_table_uses_display_subset_but_original_selection():
+    from pathlib import Path
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    assert 'visible_overview=overview.drop(' in app
+    assert 'columns=["company","coverage_pct","workflow_issue"],errors="ignore"' in app
+    assert 'line=overview.iloc[selected_rows[0]]' in app
+    assert 'workflow_state=line.get("workflow_state")' in app
