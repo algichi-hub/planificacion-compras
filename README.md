@@ -71,7 +71,7 @@ aunque las unidades estén aprobadas. Las dos clasificaciones provisionales no
 equivalen a validación de llegada física o vigencia del REAC.
 
 **Verificación de snapshot #7** (ejecución SQL read-only, 27.960 líneas):
-Completado 19.524; Material sin recibir 3.315; Pendiente pedido 2.740;
+Completado 19.524; Material sin recibir 3.312; Pendiente pedido 2.740;
 SC anulada 1.840; Parcialmente aprobadas 278; Pendiente aprobación 244;
-Pendiente conciliación 16; Recibido con incidencia (provisional) 3.
-Las 1.840 anuladas tienen cero pedidos positivos vinculados.
+Pendiente conciliación 19; Recibido con incidencia (provisional) 3.
+Las 1.840 anuladas tienen cero pedidos positivos vinculados. La clasificación estricta excluye de «Material sin recibir» incluso las incidencias históricas cerradas sin recepción formal: tres líneas adicionales pasan a «Pendiente conciliación».
