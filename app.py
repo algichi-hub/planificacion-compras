@@ -88,7 +88,7 @@ with tab2:
         conditions+=" AND (s.sc_no ILIKE %s OR s.article ILIKE %s OR EXISTS (SELECT 1 FROM core.sc_po_links l WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos AND l.po_no ILIKE %s))"
         values.extend(["%"+search.strip()+"%"]*3)
     if workflow_ready:
-        overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,s.workflow_state,s.workflow_issue FROM planning.sc_workflow_status s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
+        overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,CASE WHEN s.requested_qty>0 AND s.workflow_state<>'Pendiente conciliación' THEN LEAST(100,ROUND(100*s.approved_qty/s.requested_qty,2)) ELSE NULL END AS coverage_pct,s.workflow_state,s.workflow_issue FROM planning.sc_workflow_status s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
     else:
         overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,s.coverage_state,s.coverage_pct FROM planning.v_sc_coverage s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
     st.dataframe(overview,use_container_width=True,hide_index=True)
