@@ -15,7 +15,7 @@ def audit(snapshot_id, timeout_ms=30000):
         raise SystemExit("DATABASE_URL is not configured")
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
-            cur.execute("SET statement_timeout = %s",(timeout_ms,))
+            cur.execute("SELECT set_config('statement_timeout', %s, false)",(str(timeout_ms),))
             cur.execute("SELECT snapshot_date,state,importer_revision,sc_approved_from FROM audit.snapshots WHERE id=%s",(snapshot_id,))
             snap=cur.fetchone()
             if not snap:
