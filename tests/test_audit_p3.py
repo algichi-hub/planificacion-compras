@@ -15,7 +15,7 @@ def test_p3_coverage_complete_keeps_comment_empty():
 
 
 @pytest.mark.parametrize("ordered,delivered,approved,status",[
-    ("0","100","0","PEDIDO_CERO_CON_ENTREGA"),
+    ("0","100","0","CANCELACION_CON_MOVIMIENTOS_PENDIENTES"),
     ("12","34","4","APROBACION_INCOMPLETA_CON_SOBREENTREGA"),
     ("11","18","9","APROBACION_INCOMPLETA_CON_SOBREENTREGA"),
     ("4","5","0","APROBACION_INCOMPLETA_CON_SOBREENTREGA"),
@@ -63,7 +63,7 @@ def test_excel_csv_only_unresolved_and_format(tmp_path):
     base=dict(po_no="761214",po_pos="3",sc_no="765000",sc_pos="10",article="A",
               ordered=Decimal("42.50"),delivered=Decimal("84.50"),approved=Decimal("42.50"),
               receipt_count=2,incidents=0,status="COBERTURA_APROBADA_CONFORME",comment="")
-    problem=dict(base,po_pos="4",status="PEDIDO_CERO_CON_ENTREGA",
+    problem=dict(base,po_pos="4",status="CANCELACION_CON_MOVIMIENTOS_PENDIENTES",
                  ordered=Decimal("0"),comment="Verificar ERP")
     target=tmp_path/"report.csv"
     write_report(target,[base,problem])
@@ -99,14 +99,14 @@ def test_full_universe_reads_all_three_csv_files(tmp_path):
 def test_transferred_real_zero_reconciles_against_nominal_from_full_csv():
     status,comment=classify_position(Decimal("0"),Decimal("100"),Decimal("0"),[],
                                      transfer_context=True)
-    assert status=="TRANSFERIDA_NOMINAL_CONFORME"
+    assert status=="PEDIDO_CANCELADO_CON_HISTORICO"
     assert comment==""
 
 
 def test_nominal_match_without_transferred_context_is_unresolved():
     status,comment=classify_position(Decimal("0"),Decimal("100"),Decimal("0"),[],
                                      transfer_context=False)
-    assert status=="PEDIDO_CERO_CON_ENTREGA"
+    assert status=="CANCELACION_CON_MOVIMIENTOS_PENDIENTES"
     assert comment
 
 
@@ -124,4 +124,4 @@ def test_context_must_match_exactly_not_merely_nominal():
     assert result["comment"]==""
     wrong={key:{(Decimal("100"),Decimal("0"),"Libre")}}
     result=analyse_rows([p],[r],owners,signatures,{},wrong)[0]
-    assert result["status"]=="PEDIDO_CERO_CON_ENTREGA"
+    assert result["status"]=="CANCELACION_CON_MOVIMIENTOS_PENDIENTES"
