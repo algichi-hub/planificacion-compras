@@ -83,6 +83,18 @@ def approved_sc_selection(path, cutoff):
     conflicts={key:values for key,values in dates.items() if len(values)>1 and key in selected}
     return selected,conflicts
 
+def in_approval_scope(source, record, selected_sc_keys, selected_po_keys):
+    """Keep whole selected SC and only matching PO-position dependent rows."""
+    if selected_sc_keys is None:
+        return True
+    if source=="SC_FAS.csv":
+        return (indexed(record,0),indexed(record,6)) in selected_sc_keys
+    if source=="Recepciones_Sevilla.csv":
+        return (indexed(record,0),indexed(record,1)) in selected_po_keys
+    if source=="INC_FAS.csv":
+        return (indexed(record,2),indexed(record,3)) in selected_po_keys
+    raise ValueError(f"Unknown import source: {source}")
+
 def run_import(args):
     root=Path(args.input)
     for name in SOURCES:
@@ -131,16 +143,9 @@ def run_import(args):
                                 bad+=1
                                 issue_rows.append((sid,source,ln,"error","MALFORMED_ROW",error))
                                 continue
-                            if cutoff is not None:
-                                if source=="SC_FAS.csv":
-                                    keep=(indexed(record,0),indexed(record,6)) in selected_sc_keys
-                                elif source=="Recepciones_Sevilla.csv":
-                                    keep=(indexed(record,0),indexed(record,1)) in selected_po_keys
-                                else:
-                                    keep=(indexed(record,2),indexed(record,3)) in selected_po_keys
-                                if not keep:
-                                    filtered+=1
-                                    continue
+                            if not in_approval_scope(source,record,selected_sc_keys,selected_po_keys):
+                                filtered+=1
+                                continue
                             valid+=1
                             repair_note=record.pop("__repair_info__",None)
                             if repair_note:
