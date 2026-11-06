@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.express as px
 import psycopg
 import streamlit as st
-from src.detail_view import transpose_trace
+from src.detail_view import transpose_trace, vertical_records
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -94,7 +94,8 @@ with tab2:
                     CASE WHEN s.requested_qty>0 AND s.workflow_state<>'Pendiente conciliación'
                          THEN LEAST(100,ROUND(100*s.approved_qty/s.requested_qty,2))
                          ELSE NULL END AS coverage_pct,
-                    s.workflow_state,s.workflow_issue
+                    s.workflow_state,s.workflow_issue,s.has_reac AS reac_referenciado,
+                    s.incident_open AS incidencia_abierta
                     FROM planning.sc_workflow_status s
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
                     ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$' THEN btrim(s.sc_pos)::numeric END NULLS LAST, s.sc_pos""",(sid,sc_number))
@@ -124,15 +125,7 @@ with tab2:
                        p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
                        r.receipt_no AS parte_recepcion,r.receipt_date AS fecha_recepcion,
                        r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada,
-                       r.erp_status AS estado_recepcion,l.allocation_status AS estado_vinculo,
-                       (SELECT string_agg(DISTINCT x.reac_no, ', ' ORDER BY x.reac_no)
-                        FROM core.reac_refs x
-                        WHERE x.snapshot_id=l.snapshot_id AND x.company=l.company
-                          AND x.sc_no=l.sc_no AND x.sc_pos=l.sc_pos
-                          AND x.po_no=l.po_no AND x.po_pos=l.po_pos) AS referencias_reac,
-                       (SELECT count(*) FROM core.incidents i
-                        WHERE i.snapshot_id=l.snapshot_id AND i.po_no=l.po_no
-                          AND i.po_pos=l.po_pos) AS numero_incidencias
+                       r.erp_status AS estado_recepcion,l.allocation_status AS estado_vinculo
                        FROM core.sc_po_links l
                        JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
                            (l.snapshot_id,l.company,l.po_no,l.po_pos)
@@ -158,6 +151,60 @@ with tab2:
                         file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
                         mime="text/csv",
                     )
+
+                # REAC is keyed to the selected SC position; it is not an operational state.
+                st.markdown("#### REAC asociados a esta posición SC")
+                reac_detail=query("""SELECT reac_no AS referencia_reac,
+                       reac_article AS articulo_reac,po_no AS pedido,
+                       po_pos AS posicion_pedido
+                       FROM core.reac_refs
+                       WHERE snapshot_id=%s AND company=%s AND sc_no=%s AND sc_pos=%s
+                       ORDER BY reac_no,po_no,po_pos""",
+                    (sid,line["company"],line["sc_no"],line["sc_pos"]))
+                if reac_detail.empty:
+                    st.caption("Sin referencias REAC para esta posición.")
+                else:
+                    reac_vertical=vertical_records(reac_detail,"REAC",{
+                        "referencia_reac":"Referencia REAC","articulo_reac":"Artículo REAC",
+                        "pedido":"Pedido","posicion_pedido":"Posición pedido"})
+                    st.dataframe(reac_vertical,use_container_width=True,hide_index=True)
+                    st.caption("REAC documental: no se infiere cantidad rechazada ni estado de aprobación.")
+
+                # INC has no company/SC identifier: link conservatively by PO/position
+                # and disclose the article match instead of asserting exact SC ownership.
+                st.markdown("#### Incidencias asociadas a los pedidos de esta posición SC")
+                inc_detail=query("""SELECT DISTINCT i.source_line AS fila_origen_inc,
+                       l.po_no AS pedido,l.po_pos AS posicion_pedido,
+                       i.record_no AS numero_incidencia,i.sequence_no AS secuencia,
+                       i.article AS articulo_inc,p.article AS articulo_pedido,
+                       CASE WHEN i.article=p.article THEN 'Coincide'
+                            ELSE 'Revisar' END AS coincidencia_articulo,
+                       i.category AS categoria,i.resolved AS resuelta,
+                       i.detail AS observaciones
+                       FROM core.sc_po_links l
+                       JOIN core.po_lines p ON
+                         (p.snapshot_id,p.company,p.po_no,p.po_pos)=
+                         (l.snapshot_id,l.company,l.po_no,l.po_pos)
+                       JOIN core.incidents i ON
+                         (i.snapshot_id,i.po_no,i.po_pos)=(l.snapshot_id,l.po_no,l.po_pos)
+                       WHERE l.snapshot_id=%s AND l.company=%s
+                         AND l.sc_no=%s AND l.sc_pos=%s
+                       ORDER BY l.po_no,l.po_pos,i.source_line,i.record_no""",
+                    (sid,line["company"],line["sc_no"],line["sc_pos"]))
+                if inc_detail.empty:
+                    st.caption("Sin incidencias vinculables a sus posiciones de pedido.")
+                else:
+                    inc_vertical=vertical_records(inc_detail,"INC",{
+                        "fila_origen_inc":"Fila original INC","pedido":"Pedido",
+                        "posicion_pedido":"Posición pedido",
+                        "numero_incidencia":"Número de incidencia",
+                        "secuencia":"Secuencia","articulo_inc":"Artículo INC",
+                        "articulo_pedido":"Artículo pedido",
+                        "coincidencia_articulo":"Coincidencia de artículo",
+                        "categoria":"Categoría","resuelta":"Resuelta",
+                        "observaciones":"Observaciones"})
+                    st.dataframe(inc_vertical,use_container_width=True,hide_index=True)
+                    st.caption("INC vinculada por pedido y posición; el fichero INC carece de compañía/SC. Revisar las coincidencias de artículo y cualquier vinculación compartida.")
 with tab3:
     st.subheader("REAC asociados a SC")
     reac=query("""SELECT r.sc_no,r.sc_pos,r.po_no,r.po_pos,r.reac_no,r.reac_article
