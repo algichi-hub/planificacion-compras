@@ -49,6 +49,54 @@ def date_es(value):
             pass
     raise ValueError(f"invalid date: {v!r}")
 
+def repair_known_export_anomalies(fields, expected, source_name):
+    """Only repair confirmed ERP export anomalies with strong column anchors.
+
+    SC: stray empty column directly before QR, without shifting other columns.
+    INC: unquoted separator within description and multiple separators in notes,
+    plus two empty trailing fields. Reject all unrecognized arrangements.
+    """
+    if source_name=="SC_FAS.csv" and expected==52 and len(fields)==53:
+        if clean(fields[47]) or not clean(fields[48]) or not clean(fields[52]):
+            return None
+        candidate=fields[:47]+fields[48:]
+        try:
+            if not (clean(candidate[0]) and clean(candidate[6]) and clean(candidate[7])
+                    and clean(candidate[47]) and not clean(candidate[50])
+                    and clean(candidate[51]).isdigit()):
+                return None
+            for i in (11,19,49):
+                if decimal_es(candidate[i]) is None:
+                    return None
+            date_es(candidate[12])
+            date_es(candidate[13])
+        except ValueError:
+            return None
+        return candidate
+
+    if source_name=="INC_FAS.csv" and expected==28 and len(fields)==34:
+        if any(clean(part) for part in fields[-2:]):
+            return None
+        # One additional separator in the description at index 12.
+        # The remaining extras split the free-text observations at index 27.
+        merged=fields[:12]+[";".join(fields[12:14])]+fields[14:-2]
+        candidate=merged[:27]+[";".join(merged[27:])]
+        if len(candidate)!=expected:
+            return None
+        try:
+            if not (clean(candidate[2]) and clean(candidate[3]) and clean(candidate[5])
+                    and clean(candidate[19]).lower() in ("sí","si","no","")):
+                return None
+            date_es(candidate[11])
+            date_es(candidate[17])
+            for i in (13,14):
+                if decimal_es(candidate[i]) is None:
+                    return None
+        except ValueError:
+            return None
+        return candidate
+    return None
+
 def repair_extra_fields(fields, expected, separator, source_name):
     """Attempt a bounded recovery of delimiters in a known free-text field.
 
@@ -99,7 +147,9 @@ def iter_source(path, delimiter, encoding="cp1252"):
             repair_note=None
             if len(rec)>len(header):
                 original_count=len(rec)
-                candidate=repair_extra_fields(rec,len(header),delimiter,source_name)
+                candidate=repair_known_export_anomalies(rec,len(header),source_name)
+                if candidate is None:
+                    candidate=repair_extra_fields(rec,len(header),delimiter,source_name)
                 if candidate is not None:
                     rec=candidate
                     repair_note=f"heuristic text-field repair: {original_count} to {len(header)} fields"
