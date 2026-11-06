@@ -1,4 +1,5 @@
--- Snapshot-specific read-only classification. Parameter: snapshot_id (BIGINT).
+-- Snapshot-specific classification by quantities and verified links. INC and REAC are informational only.
+-- Parameter: snapshot_id (BIGINT).
 WITH src AS (
  SELECT s.snapshot_id,s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,
         s.requested_qty,s.qty_status
@@ -75,10 +76,7 @@ SELECT snapshot_id,company,sc_no,sc_pos,article,description,project,
         WHEN linked_po=0 OR NOT any_po_approved THEN 'Pendiente pedido'
         WHEN approved_qty>=requested_qty THEN 'Completado'
         WHEN approved_qty>0 THEN 'Parcialmente aprobadas'
-        WHEN received_qty>0 AND has_reac THEN 'REAC (provisional)'
         WHEN received_qty>0 THEN 'Pendiente aprobación'
-        WHEN incident_open AND possible_arrival THEN 'Recibido con incidencia (provisional)'
-        WHEN has_reac OR has_incident THEN 'Pendiente conciliación'
         ELSE 'Material sin recibir'
        END AS workflow_state,
        CASE
@@ -88,7 +86,5 @@ SELECT snapshot_id,company,sc_no,sc_pos,article,description,project,
         WHEN ambiguous THEN 'Vinculo SC-PO o recepcion ambigua'
         WHEN approved_qty>received_qty OR approved_qty<0 THEN 'Cantidades inconsistentes'
         WHEN linked_po=0 OR NOT any_po_approved THEN 'Sin PO aprobado'
-        WHEN received_qty=0 AND has_reac THEN 'REAC sin recepcion formal'
-        WHEN received_qty=0 AND has_incident AND NOT (incident_open AND possible_arrival) THEN 'Incidencia sin llegada acreditada'
         ELSE NULL END AS workflow_issue
 FROM facts
