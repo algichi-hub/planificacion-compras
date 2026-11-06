@@ -60,3 +60,19 @@ def test_reconciliation_progress_has_eight_milestones():
     assert len(calls)==8
     assert all(len(call.args)==1 and isinstance(call.args[0],ast.Constant)
                and call.args[0].value==1 for call in calls)
+
+def test_import_does_not_run_coverage_view_inside_transaction():
+    import inspect
+    from scripts.import_snapshot import run_import
+    code=inspect.getsource(run_import)
+    assert "FROM planning.v_sc_coverage" not in code
+    assert "audit.import_issues" in code
+
+def test_coverage_audit_has_bounded_timeout_and_is_read_only():
+    import inspect
+    from scripts.audit_snapshot import audit
+    code=inspect.getsource(audit)
+    assert "statement_timeout" in code
+    assert "INSERT INTO" not in code
+    assert "DELETE FROM" not in code
+    assert "UPDATE audit." not in code
