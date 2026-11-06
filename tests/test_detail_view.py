@@ -39,3 +39,17 @@ def test_empty_trace_is_two_column_dataframe():
     result=transpose_trace(pd.DataFrame(columns=["pedido","parte_recepcion"]))
     assert list(result.columns)==["Campo","Valor"]
     assert result.empty
+
+
+def test_vertical_supplementary_records_preserve_each_incident():
+    from src.detail_view import vertical_records
+    frame=pd.DataFrame([
+        {"numero_incidencia":"INC-A","categoria":"Falta Documentación","resuelta":"No"},
+        {"numero_incidencia":"INC-B","categoria":"Pendiente Aprobación","resuelta":"Sí"},
+    ])
+    view=vertical_records(frame,"INC",{"numero_incidencia":"Número INC"})
+    assert list(view.columns)==["Campo","Valor"]
+    assert view.loc[view.Campo=="Número INC","Valor"].tolist()==["INC-A","INC-B"]
+    assert view.loc[view.Campo=="INC 1"].shape[0]==1
+    assert view.loc[view.Campo=="INC 2"].shape[0]==1
+    assert view.loc[view.Campo=="Categoría","Valor"].tolist()==["Falta Documentación","Pendiente Aprobación"]
