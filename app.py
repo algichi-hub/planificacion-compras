@@ -1,11 +1,12 @@
 """Read-only procurement planning dashboard."""
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import pandas as pd
 import plotly.express as px
 import psycopg
 import streamlit as st
-from src.detail_view import transpose_trace, vertical_records
+from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
 from src.sc_row_styles import sc_row_style
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
@@ -142,19 +143,37 @@ with tab2:
                     st.info("Esta posición SC no tiene pedidos vinculados.")
                 else:
                     detail=transpose_trace(trace, line.get('workflow_state', line.get('coverage_state')))
+                    madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
                     st.dataframe(
-                        detail,use_container_width=True,hide_index=True,
+                        detail.style.apply(detail_row_style,axis=1,today=madrid_today),
+                        use_container_width=True,hide_index=True,
                         column_config={"Campo": st.column_config.TextColumn(width="medium"),
                                        "Valor": st.column_config.TextColumn(width="large")},
                         height=min(720,35*(len(detail)+1)+3),
                     )
-                    st.caption("Recepciones por pedido: número (fecha, cantidad aprobada, cantidad entregada). La cantidad pedida se muestra una sola vez por posición de pedido.")
+                    st.caption("Las fechas planificadas anteriores a hoy (Madrid) se destacan en rojo.")
                     st.download_button(
                         "Exportar detalle CSV",
                         detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
                         file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
                         mime="text/csv",
                     )
+                    st.markdown("#### Recepciones asociadas a esta posición SC")
+                    receptions=receptions_table(trace)
+                    if receptions.empty:
+                        st.caption("Sin recepciones registradas para los pedidos vinculados.")
+                    else:
+                        st.dataframe(receptions,use_container_width=True,hide_index=True,
+                                     column_config={"Campo": st.column_config.TextColumn(width="medium"),
+                                                    "Valor": st.column_config.TextColumn(width="large")},
+                                     height=min(720,35*(len(receptions)+1)+3))
+                        st.caption("Recepción: número (fecha, cantidad aprobada, cantidad entregada), agrupadas por pedido/pos.")
+                        st.download_button(
+                            "Exportar recepciones CSV",
+                            receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
+                            file_name=f"recepciones_SC_{line['sc_no']}_{line['sc_pos']}.csv",
+                            mime="text/csv",
+                        )
 
                 # REAC is keyed to the selected SC position; it is not an operational state.
                 st.markdown("#### REAC asociados a esta posición SC")
