@@ -54,3 +54,17 @@ def transpose_trace(trace):
             entries.append({"Campo": LABELS.get(column, column.replace("_", " ").capitalize()),
                             "Valor": display_value(value)})
     return pd.DataFrame(entries, columns=["Campo", "Valor"])
+
+
+def vertical_records(frame, title, labels=None):
+    """Render independent INC/REAC records vertically, without merging distinct events."""
+    labels = labels or {}
+    entries = []
+    for number, (_, record) in enumerate(frame.iterrows(), start=1):
+        entries.append({"Campo": f"{title} {number}", "Valor": ""})
+        for field, value in record.items():
+            entries.append({
+                "Campo": labels.get(field, field.replace("_", " ").capitalize()),
+                "Valor": display_value(value),
+            })
+    return pd.DataFrame(entries, columns=["Campo", "Valor"])
