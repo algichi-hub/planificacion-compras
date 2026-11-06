@@ -24,12 +24,12 @@ def ensure_current_importer(revision):
 def count_data_lines(path):
     """Count physical lines, excluding the header, for progress display."""
     with open(path, "rb") as fh:
-        number=sum(block.count(b"\\n") for block in iter(lambda: fh.read(1024*1024), b""))
+        number=sum(block.count(b"\n") for block in iter(lambda: fh.read(1024*1024), b""))
     with open(path, "rb") as fh:
         fh.seek(0,2)
         if fh.tell():
             fh.seek(-1,2)
-            if fh.read(1)!=b"\\n":
+            if fh.read(1)!=b"\n":
                 number+=1
     return max(0,number-1)
 
