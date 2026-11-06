@@ -90,15 +90,20 @@ def receptions_table(trace):
             "Valor": (
                 f"{display_value(receipt)} "
                 f"({display_value(record.get('fecha_recepcion'))}, "
-                f"{_compact_quantity(record.get('cantidad_aprobada'))}, "
-                f"{_compact_quantity(record.get('cantidad_entregada'))})"
+                f"Re: {_compact_quantity(record.get('cantidad_recibida'))}, "
+                f"Ap: {_compact_quantity(record.get('cantidad_aprobada'))}, "
+                f"En: {_compact_quantity(record.get('cantidad_entregada'))})"
             ),
         })
     return pd.DataFrame(rows, columns=["Campo", "Valor"])
 
 
 def detail_row_style(row, today):
-    """Color SC status and strictly overdue planned dates across both cells."""
+    """Style operational SC status and planned dates using Madrid local day.
+
+    Past-due = red, 0..7 days = orange, 8..14 = yellow, >14 = green.
+    Planned date styling is text-only (bold, no background).
+    """
     from src.sc_row_styles import STATE_COLORS
 
     campo = row.get("Campo")
@@ -112,8 +117,16 @@ def detail_row_style(row, today):
             planned = datetime.strptime(str(value), "%d/%m/%Y").date()
         except (ValueError, TypeError):
             return [""] * len(row)
-        if planned < today:
-            return ["background-color: #FEE2E2; color: #B91C1C; font-weight: bold"] * len(row)
+        days_remaining = (planned - today).days
+        if days_remaining < 0:
+            color = "#B91C1C"
+        elif days_remaining <= 7:
+            color = "#C2410C"
+        elif days_remaining <= 14:
+            color = "#A16207"
+        else:
+            color = "#15803D"
+        return [f"color: {color}; font-weight: bold"] * len(row)
     return [""] * len(row)
 
 
