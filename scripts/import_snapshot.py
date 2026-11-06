@@ -193,49 +193,68 @@ def run_import(args):
                     counts[source]={"total":total,"ok":valid,"filtered":filtered,"invalid":bad}
                     cur.execute("INSERT INTO audit.source_files(snapshot_id,source_name,sha256,rows_total,rows_ok,rows_invalid) VALUES (%s,%s,%s,%s,%s,%s)",(sid,source,hashes[source],total,valid,bad))
                 print("[3/4] Conciliating SC / PO and building database tables...",flush=True)
-                sc_keys=list(summarize_sc(sc_records))
-                copy_rows(cur,"core.sc_lines",["snapshot_id","company","sc_no","sc_pos","article","description","project","centre","project_director","requested_qty","qty_status","required_date"],
-                    ((sid,k[0],k[1],k[2],sample["article"],sample["description"],sample["project"],sample["centre"],sample["director"],qty,status,sample["required"]) for k,sample,qty,status in sc_keys))
-                po_keys=list(summarize_po(sc_records))
-                copy_rows(cur,"core.po_lines",["snapshot_id","company","po_no","po_pos","article","vendor","ordered_qty","planned_date"],
-                    ((sid,k[0],k[1],k[2],sample["article"],sample["vendor"],qty,sample["planned"]) for k,sample,qty,status in po_keys))
-                po_status={k:status for k,sample,qty,status in po_keys}
-                distinct_links={(r["company"],r["sc_no"],r["sc_pos"],r["po_no"],r["po_pos"])
-                    for r in sc_records if is_real_po(r["po_no"])}
-                po_owners=defaultdict(set)
-                for comp,sc,scpos,po,popos in distinct_links:
-                    po_owners[(po,popos)].add((comp,sc,scpos))
-                copy_rows(cur,"core.sc_po_links",["snapshot_id","company","sc_no","sc_pos","po_no","po_pos","allocation_qty","allocation_status"],
-                    ((sid,comp,sc,scpos,po,popos,None,
-                      "verified" if len(po_owners[(po,popos)])==1 and po_status.get((comp,po,popos))=="verified" else "ambiguous")
-                     for comp,sc,scpos,po,popos in sorted(distinct_links)))
-                reac_keys={
-                    (r["company"],r["sc_no"],r["sc_pos"],
-                     r["po_no"] if is_real_po(r["po_no"]) else "",
-                     r["po_pos"] if is_real_po(r["po_no"]) else "",
-                     r["reac"],r["reac_article"])
-                    for r in sc_records if r.get("reac") and r["reac"] not in ("0","000000")
-                }
-                copy_rows(cur,"core.reac_refs",
-                    ["snapshot_id","company","sc_no","sc_pos","po_no","po_pos","reac_no","reac_article"],
-                    ((sid,*r) for r in sorted(reac_keys)))
-                for k,sample,qty,status in sc_keys:
-                    if status!="verified":
-                        issue_rows.append((sid,"SC_FAS.csv",None,"warning",status,f"SC {k}: conflicting or missing requested quantities"))
-                for k,sample,qty,status in po_keys:
-                    if status!="verified":
-                        issue_rows.append((sid,"SC_FAS.csv",None,"warning",status,f"PO {k}: conflicting or missing ordered quantities"))
-                cur.execute("""
-                    SELECT company,sc_no,sc_pos,requested_qty,approved_qty
-                    FROM planning.v_sc_coverage
-                    WHERE snapshot_id=%s AND approved_qty>requested_qty
-                """,(sid,))
-                for comp,sc,pos,requested,approved in cur.fetchall():
-                    issue_rows.append((
-                        sid,"Recepciones_Sevilla.csv",None,"warning","APPROVED_EXCEEDS_REQUESTED",
-                        f"SC {comp}/{sc}/{pos}: requested={requested}, approved={approved}"
-                    ))
-                copy_rows(cur,"audit.import_issues",["snapshot_id","source_name","line_number","severity","issue_code","details"],issue_rows)
+                with tqdm(total=8,desc="SC/PO reconciliation (approx.)",unit="step",
+                          disable=getattr(args,"no_progress",False),dynamic_ncols=True,leave=True) as progress:
+                    progress.set_postfix_str("Grouping SC",refresh=True)
+                    sc_keys=list(summarize_sc(sc_records))
+                    progress.update(1)
+                    progress.set_postfix_str("Writing SC to Neon",refresh=True)
+                    copy_rows(cur,"core.sc_lines",["snapshot_id","company","sc_no","sc_pos","article","description","project","centre","project_director","requested_qty","qty_status","required_date"],
+                        ((sid,k[0],k[1],k[2],sample["article"],sample["description"],sample["project"],sample["centre"],sample["director"],qty,status,sample["required"]) for k,sample,qty,status in sc_keys))
+                    progress.update(1)
+                    progress.set_postfix_str("Grouping PO",refresh=True)
+                    po_keys=list(summarize_po(sc_records))
+                    progress.update(1)
+                    progress.set_postfix_str("Writing PO to Neon",refresh=True)
+                    copy_rows(cur,"core.po_lines",["snapshot_id","company","po_no","po_pos","article","vendor","ordered_qty","planned_date"],
+                        ((sid,k[0],k[1],k[2],sample["article"],sample["vendor"],qty,sample["planned"]) for k,sample,qty,status in po_keys))
+                    progress.update(1)
+                    progress.set_postfix_str("Building SC/PO links",refresh=True)
+                    po_status={k:status for k,sample,qty,status in po_keys}
+                    distinct_links={(r["company"],r["sc_no"],r["sc_pos"],r["po_no"],r["po_pos"])
+                        for r in sc_records if is_real_po(r["po_no"])}
+                    po_owners=defaultdict(set)
+                    for comp,sc,scpos,po,popos in distinct_links:
+                        po_owners[(po,popos)].add((comp,sc,scpos))
+                    copy_rows(cur,"core.sc_po_links",["snapshot_id","company","sc_no","sc_pos","po_no","po_pos","allocation_qty","allocation_status"],
+                        ((sid,comp,sc,scpos,po,popos,None,
+                          "verified" if len(po_owners[(po,popos)])==1 and po_status.get((comp,po,popos))=="verified" else "ambiguous")
+                         for comp,sc,scpos,po,popos in sorted(distinct_links)))
+                    progress.update(1)
+                    progress.set_postfix_str("Writing REAC references",refresh=True)
+                    reac_keys={
+                        (r["company"],r["sc_no"],r["sc_pos"],
+                         r["po_no"] if is_real_po(r["po_no"]) else "",
+                         r["po_pos"] if is_real_po(r["po_no"]) else "",
+                         r["reac"],r["reac_article"])
+                        for r in sc_records if r.get("reac") and r["reac"] not in ("0","000000")
+                    }
+                    copy_rows(cur,"core.reac_refs",
+                        ["snapshot_id","company","sc_no","sc_pos","po_no","po_pos","reac_no","reac_article"],
+                        ((sid,*r) for r in sorted(reac_keys)))
+                    progress.update(1)
+                    progress.set_postfix_str("Checking data quality",refresh=True)
+                    for k,sample,qty,status in sc_keys:
+                        if status not in ("verified","verified_allocated_sum"):
+                            issue_rows.append((sid,"SC_FAS.csv",None,"warning",status,f"SC {k}: conflicting or missing requested quantities"))
+                    for k,sample,qty,status in po_keys:
+                        if status!="verified":
+                            issue_rows.append((sid,"SC_FAS.csv",None,"warning",status,f"PO {k}: conflicting or missing ordered quantities"))
+                    progress.update(1)
+                    progress.set_postfix_str("Auditing coverage in Neon (may take time)",refresh=True)
+                    cur.execute("""
+                        SELECT company,sc_no,sc_pos,requested_qty,approved_qty
+                        FROM planning.v_sc_coverage
+                        WHERE snapshot_id=%s AND approved_qty>requested_qty
+                    """,(sid,))
+                    for comp,sc,pos,requested,approved in cur.fetchall():
+                        issue_rows.append((
+                            sid,"Recepciones_Sevilla.csv",None,"warning","APPROVED_EXCEEDS_REQUESTED",
+                            f"SC {comp}/{sc}/{pos}: requested={requested}, approved={approved}"
+                        ))
+                    copy_rows(cur,"audit.import_issues",["snapshot_id","source_name","line_number","severity","issue_code","details"],issue_rows)
+                    progress.update(1)
+                    progress.set_postfix_str("Reconciliation complete",refresh=True)
                 print("[4/4] Finalizing transaction...",flush=True)
                 cur.execute("UPDATE audit.snapshots SET state='validated' WHERE id=%s",(sid,))
         print("Validated snapshot",sid,"date",args.date)
