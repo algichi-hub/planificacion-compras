@@ -139,11 +139,11 @@ with tab2:
                        WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
                        ORDER BY l.po_no,l.po_pos,r.receipt_date NULLS LAST,r.receipt_no""",
                             (sid,line["company"],line["sc_no"],line["sc_pos"]))
+                detail=transpose_trace(trace, line.get('workflow_state', line.get('coverage_state')))
+                madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
                 if trace.empty:
-                    st.info("Esta posición SC no tiene pedidos vinculados.")
-                else:
-                    detail=transpose_trace(trace, line.get('workflow_state', line.get('coverage_state')))
-                    madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
+                    st.caption("Esta posición SC no tiene pedidos vinculados.")
+                if not detail.empty:
                     st.dataframe(
                         detail.style.apply(detail_row_style,axis=1,today=madrid_today),
                         use_container_width=True,hide_index=True,
@@ -158,23 +158,22 @@ with tab2:
                         file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
                         mime="text/csv",
                     )
-                    st.markdown("#### Recepciones asociadas a esta posición SC")
-                    receptions=receptions_table(trace)
-                    if receptions.empty:
-                        st.caption("Sin recepciones registradas para los pedidos vinculados.")
-                    else:
-                        st.dataframe(receptions,use_container_width=True,hide_index=True,
-                                     column_config={"Campo": st.column_config.TextColumn(width="medium"),
-                                                    "Valor": st.column_config.TextColumn(width="large")},
-                                     height=min(720,35*(len(receptions)+1)+3))
-                        st.caption("Recepción: número (fecha, cantidad aprobada, cantidad entregada), agrupadas por pedido/pos.")
-                        st.download_button(
-                            "Exportar recepciones CSV",
-                            receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
-                            file_name=f"recepciones_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-                            mime="text/csv",
-                        )
-
+                st.markdown("#### Recepciones asociadas a esta posición SC")
+                receptions=receptions_table(trace)
+                if receptions.empty:
+                    st.caption("Sin recepciones registradas para los pedidos vinculados.")
+                else:
+                    st.dataframe(receptions,use_container_width=True,hide_index=True,
+                                 column_config={"Campo": st.column_config.TextColumn(width="medium"),
+                                                "Valor": st.column_config.TextColumn(width="large")},
+                                 height=min(720,35*(len(receptions)+1)+3))
+                    st.caption("Recepción: número (fecha, cantidad aprobada, cantidad entregada), agrupadas por pedido/pos.")
+                    st.download_button(
+                        "Exportar recepciones CSV",
+                        receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
+                        file_name=f"recepciones_SC_{line['sc_no']}_{line['sc_pos']}.csv",
+                        mime="text/csv",
+                    )
                 # REAC is keyed to the selected SC position; it is not an operational state.
                 st.markdown("#### REAC asociados a esta posición SC")
                 reac_detail=query("""SELECT reac_no AS referencia_reac,
