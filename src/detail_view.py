@@ -90,7 +90,7 @@ def receptions_table(trace):
             "Valor": (
                 f"{display_value(receipt)} "
                 f"({display_value(record.get('fecha_recepcion'))}, "
-                f"Re: {_compact_quantity(record.get('cantidad_recibida'))}, "
+                f"Re: {_compact_quantity(record.get('cantidad_recibida', record.get('cantidad_entregada')) if not pd.isna(record.get('cantidad_recibida')) else record.get('cantidad_entregada'))}, "
                 f"Ap: {_compact_quantity(record.get('cantidad_aprobada'))}, "
                 f"En: {_compact_quantity(record.get('cantidad_entregada'))})"
             ),
@@ -98,8 +98,8 @@ def receptions_table(trace):
     return pd.DataFrame(rows, columns=["Campo", "Valor"])
 
 
-def detail_row_style(row, today):
-    """Style operational SC status and planned dates using Madrid local day.
+def detail_row_style(row, today, workflow_state=None):
+    """Style SC status and planned dates only for unreceived material, using Madrid local day.
 
     Past-due = red, 0..7 days = orange, 8..14 = yellow, >14 = green.
     Planned date styling is text-only (bold, no background).
@@ -112,6 +112,8 @@ def detail_row_style(row, today):
         if color:
             return [f"background-color: {color}; color: #111827"] * len(row)
     if campo == "Fecha planificada":
+        if workflow_state != "Material sin recibir":
+            return [""] * len(row)
         value = row.get("Valor")
         try:
             planned = datetime.strptime(str(value), "%d/%m/%Y").date()
