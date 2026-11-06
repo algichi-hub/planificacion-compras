@@ -29,7 +29,7 @@ def classify(conn, snapshot_id, commit=False):
             updates=", ".join(f"{col}=EXCLUDED.{col}" for col in updated.split(","))
             cur.execute(f"""
               INSERT INTO planning.sc_workflow_status ({cols})
-              SELECT {cols} FROM ({QUERY}) AS classified
+              SELECT {cols} FROM ({QUERY}) AS classified WHERE true
               ON CONFLICT (snapshot_id,company,sc_no,sc_pos)
               DO UPDATE SET {updates},computed_at=now()
             """,args)
