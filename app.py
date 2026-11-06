@@ -6,6 +6,7 @@ import plotly.express as px
 import psycopg
 import streamlit as st
 from src.detail_view import transpose_trace, vertical_records
+from src.sc_row_styles import sc_row_style
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -111,8 +112,12 @@ with tab2:
         else:
             st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
             # Native Streamlit selection leaves the table copyable and sortable.
+            # Styler changes only cell colors; keep the original DataFrame for
+            # row selection and trace lookup, and preserve native copy/sort.
+            colored_overview=(overview.style.apply(sc_row_style,axis=1)
+                              if "workflow_state" in overview.columns else overview)
             event=st.dataframe(
-                overview,use_container_width=True,hide_index=True,
+                colored_overview,use_container_width=True,hide_index=True,
                 on_select="rerun",selection_mode="single-row",
                 key=f"sc_overview_{sid}_{sc_number}",
             )
