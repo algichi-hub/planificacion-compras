@@ -98,7 +98,10 @@ def analyse_rows(pos, receipts, universe_owners, universe_receipts, universe_inc
         db_signatures=Counter(receipt_signature(r) for r in db_receipts)
         full_ok=(db_signatures == universe_receipts.get(key,Counter()))
         expected={(p["company"],p["sc_no"],p["sc_pos"])}
-        foreign_owners=universe_owners.get(key,set())-expected
+        actual_owners=universe_owners.get(key,set())
+        foreign_owners=actual_owners-expected
+        if not actual_owners or not expected.issubset(actual_owners):
+            full_ok=False
         delivered=sum((r["delivered"] or Decimal(0) for r in db_receipts),Decimal(0))
         approved=sum((r["approved"] or Decimal(0) for r in db_receipts),Decimal(0))
         status,comment=classify_position(p["ordered"],delivered,approved,db_receipts,
