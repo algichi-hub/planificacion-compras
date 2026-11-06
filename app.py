@@ -124,8 +124,7 @@ with tab2:
                        p.article AS articulo_pedido,p.vendor AS proveedor,
                        p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
                        r.receipt_no AS parte_recepcion,r.receipt_date AS fecha_recepcion,
-                       r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada,
-                       r.erp_status AS estado_recepcion,l.allocation_status AS estado_vinculo
+                       r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada
                        FROM core.sc_po_links l
                        JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
                            (l.snapshot_id,l.company,l.po_no,l.po_pos)
@@ -137,14 +136,14 @@ with tab2:
                 if trace.empty:
                     st.info("Esta posición SC no tiene pedidos vinculados.")
                 else:
-                    detail=transpose_trace(trace)
+                    detail=transpose_trace(trace, line.get('workflow_state', line.get('coverage_state')))
                     st.dataframe(
                         detail,use_container_width=True,hide_index=True,
                         column_config={"Campo": st.column_config.TextColumn(width="medium"),
                                        "Valor": st.column_config.TextColumn(width="large")},
                         height=min(720,35*(len(detail)+1)+3),
                     )
-                    st.caption("Detalle vertical por movimiento de pedido/recepción. Cada bloque conserva sus cantidades y estados; no sumar las cantidades pedidas repetidas.")
+                    st.caption("Recepciones por pedido: número (fecha, cantidad aprobada, cantidad entregada). La cantidad pedida se muestra una sola vez por posición de pedido.")
                     st.download_button(
                         "Exportar detalle CSV",
                         detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
