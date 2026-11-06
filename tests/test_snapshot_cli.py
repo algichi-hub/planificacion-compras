@@ -76,3 +76,30 @@ def test_coverage_audit_has_bounded_timeout_and_is_read_only():
     assert "INSERT INTO" not in code
     assert "DELETE FROM" not in code
     assert "UPDATE audit." not in code
+
+def test_sc_workflow_rules_and_snapshot_scope():
+    from scripts.build_sc_workflow import QUERY, PARAMETERS
+    assert PARAMETERS==6
+    assert QUERY.count("%s")==PARAMETERS
+    assert "WHEN requested_qty=0 THEN 'SC anulada'" in QUERY
+    assert QUERY.index("WHEN requested_qty=0 THEN 'SC anulada'") < QUERY.index("WHEN linked_po=0 OR NOT any_po_approved THEN 'Pendiente pedido'")
+    assert "AND ordered_qty>0 THEN 'SC anulada con PO positivo'" in QUERY
+    assert "FROM core.sc_lines s WHERE s.snapshot_id=%s" in QUERY
+    assert "FROM core.receipts WHERE snapshot_id=%s" in QUERY
+    assert "FROM core.incidents WHERE snapshot_id=%s" in QUERY
+
+def test_sc_workflow_is_dry_run_by_default():
+    from pathlib import Path
+    code=(Path(__file__).resolve().parents[1]/"scripts"/"build_sc_workflow.py").read_text(encoding="utf-8")
+    assert 'parser.add_argument("--commit",action="store_true"' in code
+    assert "conn.rollback()" in code
+    assert "ON CONFLICT (snapshot_id,company,sc_no,sc_pos)" in code
+    assert "SELECT {cols} FROM ({QUERY}) AS classified WHERE true" in code
+
+def test_sc_workflow_schema_is_additive():
+    from pathlib import Path
+    sql=(Path(__file__).resolve().parents[1]/"migrations"/"007_sc_workflow_status.sql").read_text(encoding="utf-8")
+    assert "CREATE TABLE IF NOT EXISTS planning.sc_workflow_status" in sql
+    assert "PRIMARY KEY(snapshot_id,company,sc_no,sc_pos)" in sql
+    assert "DROP TABLE" not in sql.upper()
+    assert "DELETE FROM" not in sql.upper()
