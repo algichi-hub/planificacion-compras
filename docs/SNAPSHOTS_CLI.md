@@ -52,3 +52,13 @@ Si alguna SC seleccionada presenta fechas de aprobación distintas, se conserva 
 `audit.snapshots.sc_approved_from` registra el corte; es `NULL` si no hubo filtro. Los hashes de origen son de los CSV completos. Los contadores de progreso reportan total, incluidos, excluidos y malformados. Las cifras agregadas del tablero son **solo del universo de SC seleccionadas** y no equivalen al total del ERP.
 
 Si una posición PO coincide con solicitudes externas al universo seleccionado, la pertenencia de sus recepciones debe revisarse en la auditoría, porque el CSV de recepciones no contiene la compañía.
+
+## Rendimiento de la conciliación y auditoría P2
+
+La fase [3/4] confirma el snapshot sin consultar la costosa vista `planning.v_sc_coverage`. La auditoría de cobertura se realiza **después** y en un proceso independiente:
+
+```powershell
+python scripts/audit_snapshot.py --snapshot 2 --timeout 30
+```
+
+El timeout es por consulta, en segundos. Si la vista excede el plazo, la auditoría responde `AUDIT INCOMPLETE` y la importación anterior permanece confirmada y sin activar; no se debe aceptar P2 hasta resolver la consulta.
