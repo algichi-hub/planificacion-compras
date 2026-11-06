@@ -97,14 +97,14 @@ with tab2:
                     s.workflow_state,s.workflow_issue
                     FROM planning.sc_workflow_status s
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
-                    ORDER BY s.company,CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+""",(sid,sc_number))
+                    ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$' THEN btrim(s.sc_pos)::numeric END NULLS LAST, s.sc_pos""",(sid,sc_number))
         else:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,
                     s.approved_qty,s.coverage_state,s.coverage_pct
                     FROM planning.v_sc_coverage s
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
-                    ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,sc_number))
+                    ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$' THEN btrim(s.sc_pos)::numeric END NULLS LAST, s.sc_pos""",(sid,sc_number))
         if overview.empty:
             st.info("No se encontraron posiciones para esa SC en el snapshot seleccionado.")
         else:
@@ -155,151 +155,6 @@ with tab2:
                     st.download_button(
                         "Exportar detalle CSV",
                         detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
-                        file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-                        mime="text/csv",
-                    )
-with tab3:
-    st.subheader("REAC asociados a SC")
-    reac=query("""SELECT r.sc_no,r.sc_pos,r.po_no,r.po_pos,r.reac_no,r.reac_article
-                  FROM core.reac_refs r WHERE r.snapshot_id=%s
-                  ORDER BY r.sc_no,r.sc_pos LIMIT 3000""",(sid,))
-    st.dataframe(reac,use_container_width=True,hide_index=True)
-    st.caption("REAC referido en el extracto SC; no se asigna automáticamente una cantidad rechazada.")
-    st.subheader("Incidencias de almacén")
-    incidents=query("""SELECT record_no,sequence_no,po_no,po_pos,article,category,resolved,detail
-                        FROM core.incidents WHERE snapshot_id=%s
-                        ORDER BY record_no DESC LIMIT 3000""",(sid,))
-    st.dataframe(incidents,use_container_width=True,hide_index=True)
-    st.caption("Las incidencias sin posición fiable no se asignan automáticamente a una recepción.")
-with tab4:
-    issues=query("""SELECT source_name,line_number,severity,issue_code,details FROM audit.import_issues
-                    WHERE snapshot_id=%s ORDER BY CASE severity WHEN 'error' THEN 0 ELSE 1 END,id LIMIT 5000""",(sid,))
-    st.dataframe(issues,use_container_width=True,hide_index=True)
-    totals=query("SELECT source_name,rows_total,rows_ok,rows_invalid FROM audit.source_files WHERE snapshot_id=%s ORDER BY source_name",(sid,))
-    st.dataframe(totals,use_container_width=True,hide_index=True)
-    st.download_button("Exportar incidencias de calidad",issues.to_csv(index=False,sep=";").encode("utf-8-sig"),
-                       file_name="calidad_datos.csv",mime="text/csv")
- THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
-        else:
-            overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
-                    s.project,s.requested_qty,s.ordered_qty,s.received_qty,
-                    s.approved_qty,s.coverage_state,s.coverage_pct
-                    FROM planning.v_sc_coverage s
-                    WHERE s.snapshot_id=%s AND s.sc_no=%s
-                    ORDER BY s.company,CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+""",(sid,sc_number))
-        if overview.empty:
-            st.info("No se encontraron posiciones para esa SC en el snapshot seleccionado.")
-        else:
-            st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
-            # Native Streamlit selection leaves the table copyable and sortable.
-            event=st.dataframe(
-                overview,use_container_width=True,hide_index=True,
-                on_select="rerun",selection_mode="single-row",
-                key=f"sc_overview_{sid}_{sc_number}",
-            )
-            selected_rows=event.selection.rows
-            if selected_rows:
-                line=overview.iloc[selected_rows[0]]
-                st.subheader(f"Detalle SC {line['sc_no']} / posición {line['sc_pos']}")
-                trace=query("""SELECT l.po_no AS pedido,l.po_pos AS posicion_pedido,
-                       p.article AS articulo_pedido,p.vendor AS proveedor,
-                       p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
-                       r.receipt_no AS parte_recepcion,r.receipt_date AS fecha_recepcion,
-                       r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada,
-                       r.erp_status AS estado_recepcion,l.allocation_status AS estado_vinculo,
-                       (SELECT string_agg(DISTINCT x.reac_no, ', ' ORDER BY x.reac_no)
-                        FROM core.reac_refs x
-                        WHERE x.snapshot_id=l.snapshot_id AND x.company=l.company
-                          AND x.sc_no=l.sc_no AND x.sc_pos=l.sc_pos
-                          AND x.po_no=l.po_no AND x.po_pos=l.po_pos) AS referencias_reac,
-                       (SELECT count(*) FROM core.incidents i
-                        WHERE i.snapshot_id=l.snapshot_id AND i.po_no=l.po_no
-                          AND i.po_pos=l.po_pos) AS numero_incidencias
-                       FROM core.sc_po_links l
-                       JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
-                           (l.snapshot_id,l.company,l.po_no,l.po_pos)
-                       LEFT JOIN core.receipts r ON (r.snapshot_id,r.po_no,r.po_pos)=
-                           (l.snapshot_id,l.po_no,l.po_pos)
-                       WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
-                       ORDER BY l.po_no,l.po_pos,r.receipt_date NULLS LAST,r.receipt_no""",
-                            (sid,line["company"],line["sc_no"],line["sc_pos"]))
-                if trace.empty:
-                    st.info("Esta posición SC no tiene pedidos vinculados.")
-                else:
-                    st.dataframe(trace,use_container_width=True,hide_index=True)
-                    st.caption("Cada fila representa una recepción del pedido. La cantidad pedida puede repetirse: no debe sumarse por recepción.")
-                    st.download_button(
-                        "Exportar detalle CSV",
-                        trace.to_csv(index=False,sep=";",decimal=",").encode("utf-8-sig"),
-                        file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-                        mime="text/csv",
-                    )
-with tab3:
-    st.subheader("REAC asociados a SC")
-    reac=query("""SELECT r.sc_no,r.sc_pos,r.po_no,r.po_pos,r.reac_no,r.reac_article
-                  FROM core.reac_refs r WHERE r.snapshot_id=%s
-                  ORDER BY r.sc_no,r.sc_pos LIMIT 3000""",(sid,))
-    st.dataframe(reac,use_container_width=True,hide_index=True)
-    st.caption("REAC referido en el extracto SC; no se asigna automáticamente una cantidad rechazada.")
-    st.subheader("Incidencias de almacén")
-    incidents=query("""SELECT record_no,sequence_no,po_no,po_pos,article,category,resolved,detail
-                        FROM core.incidents WHERE snapshot_id=%s
-                        ORDER BY record_no DESC LIMIT 3000""",(sid,))
-    st.dataframe(incidents,use_container_width=True,hide_index=True)
-    st.caption("Las incidencias sin posición fiable no se asignan automáticamente a una recepción.")
-with tab4:
-    issues=query("""SELECT source_name,line_number,severity,issue_code,details FROM audit.import_issues
-                    WHERE snapshot_id=%s ORDER BY CASE severity WHEN 'error' THEN 0 ELSE 1 END,id LIMIT 5000""",(sid,))
-    st.dataframe(issues,use_container_width=True,hide_index=True)
-    totals=query("SELECT source_name,rows_total,rows_ok,rows_invalid FROM audit.source_files WHERE snapshot_id=%s ORDER BY source_name",(sid,))
-    st.dataframe(totals,use_container_width=True,hide_index=True)
-    st.download_button("Exportar incidencias de calidad",issues.to_csv(index=False,sep=";").encode("utf-8-sig"),
-                       file_name="calidad_datos.csv",mime="text/csv")
- THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
-        if overview.empty:
-            st.info("No se encontraron posiciones para esa SC en el snapshot seleccionado.")
-        else:
-            st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
-            # Native Streamlit selection leaves the table copyable and sortable.
-            event=st.dataframe(
-                overview,use_container_width=True,hide_index=True,
-                on_select="rerun",selection_mode="single-row",
-                key=f"sc_overview_{sid}_{sc_number}",
-            )
-            selected_rows=event.selection.rows
-            if selected_rows:
-                line=overview.iloc[selected_rows[0]]
-                st.subheader(f"Detalle SC {line['sc_no']} / posición {line['sc_pos']}")
-                trace=query("""SELECT l.po_no AS pedido,l.po_pos AS posicion_pedido,
-                       p.article AS articulo_pedido,p.vendor AS proveedor,
-                       p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
-                       r.receipt_no AS parte_recepcion,r.receipt_date AS fecha_recepcion,
-                       r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada,
-                       r.erp_status AS estado_recepcion,l.allocation_status AS estado_vinculo,
-                       (SELECT string_agg(DISTINCT x.reac_no, ', ' ORDER BY x.reac_no)
-                        FROM core.reac_refs x
-                        WHERE x.snapshot_id=l.snapshot_id AND x.company=l.company
-                          AND x.sc_no=l.sc_no AND x.sc_pos=l.sc_pos
-                          AND x.po_no=l.po_no AND x.po_pos=l.po_pos) AS referencias_reac,
-                       (SELECT count(*) FROM core.incidents i
-                        WHERE i.snapshot_id=l.snapshot_id AND i.po_no=l.po_no
-                          AND i.po_pos=l.po_pos) AS numero_incidencias
-                       FROM core.sc_po_links l
-                       JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
-                           (l.snapshot_id,l.company,l.po_no,l.po_pos)
-                       LEFT JOIN core.receipts r ON (r.snapshot_id,r.po_no,r.po_pos)=
-                           (l.snapshot_id,l.po_no,l.po_pos)
-                       WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
-                       ORDER BY l.po_no,l.po_pos,r.receipt_date NULLS LAST,r.receipt_no""",
-                            (sid,line["company"],line["sc_no"],line["sc_pos"]))
-                if trace.empty:
-                    st.info("Esta posición SC no tiene pedidos vinculados.")
-                else:
-                    st.dataframe(trace,use_container_width=True,hide_index=True)
-                    st.caption("Cada fila representa una recepción del pedido. La cantidad pedida puede repetirse: no debe sumarse por recepción.")
-                    st.download_button(
-                        "Exportar detalle CSV",
-                        trace.to_csv(index=False,sep=";",decimal=",").encode("utf-8-sig"),
                         file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
                         mime="text/csv",
                     )
