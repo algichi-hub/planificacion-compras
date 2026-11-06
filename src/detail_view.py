@@ -40,7 +40,7 @@ def _compact_quantity(value):
     if value is None or pd.isna(value):
         return "—"
     if isinstance(value, Decimal):
-        return format(value, "f").rstrip("0").rstrip(".").replace(".", ",") if value != 0 else "0"
+        return (format(value, "f").rstrip("0").rstrip(".") if "." in format(value, "f") else format(value, "f")).replace(".", ",")
     return str(value).replace(".", ",") if isinstance(value, float) else str(value)
 
 
