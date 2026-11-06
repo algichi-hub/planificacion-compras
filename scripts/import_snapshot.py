@@ -3,10 +3,12 @@ import argparse
 import hashlib
 import os
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
 import psycopg
+from tqdm import tqdm
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from src.normalize import iter_source,decimal_es,date_es,is_real_po
@@ -18,6 +20,18 @@ IMPORTER_REVISION="p2_receipt_decimal_dot_v1"
 def ensure_current_importer(revision):
     if revision != IMPORTER_REVISION:
         raise ValueError("Snapshot uses an outdated importer revision; reimport original CSV files")
+
+def count_data_lines(path):
+    """Count physical lines, excluding the header, for progress display."""
+    with open(path, "rb") as fh:
+        number=sum(block.count(b"\\n") for block in iter(lambda: fh.read(1024*1024), b""))
+    with open(path, "rb") as fh:
+        fh.seek(0,2)
+        if fh.tell():
+            fh.seek(-1,2)
+            if fh.read(1)!=b"\\n":
+                number+=1
+    return max(0,number-1)
 
 def sha256(path):
     h=hashlib.sha256()
@@ -37,6 +51,7 @@ def run_import(args):
     for name in SOURCES:
         if not (root/name).is_file():
             raise SystemExit(f"Required input missing: {root/name}")
+    print("[1/4] Calculating file hashes...",flush=True)
     hashes={name:sha256(root/name) for name in SOURCES}
     sc_records=[]
     issue_rows=[]
@@ -50,12 +65,18 @@ def run_import(args):
                 cur.execute("INSERT INTO audit.snapshots(snapshot_date,source_hashes,importer_revision) VALUES (%s,%s::jsonb,%s) RETURNING id",
                             (args.date,__import__("json").dumps(hashes),IMPORTER_REVISION))
                 sid=cur.fetchone()[0]
+                print("[2/4] Uploading CSV data...",flush=True)
                 for source,separator in SOURCES.items():
                     total=valid=bad=0
+                    pbar=tqdm(total=count_data_lines(root/source),desc=source[:22],unit="line",
+                              disable=getattr(args,"no_progress",False),dynamic_ncols=True,mininterval=0.2)
                     path=root/source
                     def rows():
                         nonlocal total,valid,bad
+                        last_line=1
                         for ln,record,error in iter_source(path,separator):
+                            pbar.update(max(0,ln-last_line))
+                            last_line=ln
                             total+=1
                             if error:
                                 bad+=1
@@ -101,8 +122,11 @@ def run_import(args):
                                 except ValueError as exc:
                                     issue_rows.append((sid,source,ln,"error","INVALID_INCIDENT",str(exc)))
                         copy_rows(cur,"core.incidents",["snapshot_id","source_line","record_no","sequence_no","po_no","po_pos","article","category","resolved","detail"],incident_records())
+                    pbar.close()
+                    tqdm.write(f"  {source}: {valid:,} parsed; {bad:,} malformed")
                     counts[source]={"total":total,"ok":valid,"invalid":bad}
                     cur.execute("INSERT INTO audit.source_files(snapshot_id,source_name,sha256,rows_total,rows_ok,rows_invalid) VALUES (%s,%s,%s,%s,%s,%s)",(sid,source,hashes[source],total,valid,bad))
+                print("[3/4] Conciliating SC / PO and building database tables...",flush=True)
                 sc_keys=list(summarize_sc(sc_records))
                 copy_rows(cur,"core.sc_lines",["snapshot_id","company","sc_no","sc_pos","article","description","project","centre","project_director","requested_qty","qty_status","required_date"],
                     ((sid,k[0],k[1],k[2],sample["article"],sample["description"],sample["project"],sample["centre"],sample["director"],qty,status,sample["required"]) for k,sample,qty,status in sc_keys))
@@ -146,6 +170,7 @@ def run_import(args):
                         f"SC {comp}/{sc}/{pos}: requested={requested}, approved={approved}"
                     ))
                 copy_rows(cur,"audit.import_issues",["snapshot_id","source_name","line_number","severity","issue_code","details"],issue_rows)
+                print("[4/4] Finalizing transaction...",flush=True)
                 cur.execute("UPDATE audit.snapshots SET state='validated' WHERE id=%s",(sid,))
         print("Validated snapshot",sid,"date",args.date)
         print("Source counts:",counts)
@@ -182,6 +207,7 @@ if __name__=="__main__":
     ap.add_argument("--input",default="entrada")
     ap.add_argument("--activate",type=int,help="Explicitly activate an already validated snapshot")
     ap.add_argument("--allow-errors",action="store_true",help="Override after manual review")
+    ap.add_argument("--no-progress",action="store_true",help="Disable progress bars")
     args=ap.parse_args()
     if args.activate is not None:
         activate(args.activate,args.allow_errors)
