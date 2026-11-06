@@ -21,6 +21,7 @@ WITH src AS (
  FROM core.receipts WHERE snapshot_id=%s GROUP BY 1,2
 ), po_incidents AS (
  SELECT po_no,po_pos,
+        true AS has_incident,
         bool_or(lower(btrim(coalesce(resolved,''))) IN ('no','')) AS incident_open,
         bool_or(lower(btrim(coalesce(resolved,''))) IN ('no','') AND
           category IN ('Falta Documentación','Pendiente Aprobación','Documentación Errónea',
@@ -32,6 +33,7 @@ WITH src AS (
         l.allocation_status,coalesce(p.ordered_qty,0) ordered,
         coalesce(r.received,0) received,coalesce(r.approved,0) approved,
         coalesce(r.null_receipt,false) null_receipt,
+        coalesce(i.has_incident,false) has_incident,
         coalesce(i.incident_open,false) incident_open,
         coalesce(i.possible_arrival,false) possible_arrival
  FROM core.sc_po_links l
@@ -44,6 +46,7 @@ WITH src AS (
  SELECT company,sc_no,sc_pos,count(*) linked_po,
         sum(ordered) ordered_qty,sum(received) received_qty,sum(approved) approved_qty,
         bool_or(owner_count>1 OR allocation_status <> 'verified' OR null_receipt) ambiguous,
+        bool_or(has_incident) has_incident,
         bool_or(incident_open) incident_open,
         bool_or(possible_arrival) possible_arrival
  FROM links GROUP BY 1,2,3
@@ -51,6 +54,7 @@ WITH src AS (
  SELECT s.*,coalesce(p.linked_po,0) linked_po,
         coalesce(p.ordered_qty,0) ordered_qty,coalesce(p.received_qty,0) received_qty,
         coalesce(p.approved_qty,0) approved_qty,coalesce(p.ambiguous,false) ambiguous,
+        coalesce(p.has_incident,false) has_incident,
         coalesce(p.incident_open,false) incident_open,
         coalesce(p.possible_arrival,false) possible_arrival,
         coalesce(r.any_po_approved,false) any_po_approved,
@@ -74,7 +78,7 @@ SELECT snapshot_id,company,sc_no,sc_pos,article,description,project,
         WHEN received_qty>0 AND has_reac THEN 'REAC (provisional)'
         WHEN received_qty>0 THEN 'Pendiente aprobación'
         WHEN incident_open AND possible_arrival THEN 'Recibido con incidencia (provisional)'
-        WHEN has_reac OR incident_open THEN 'Pendiente conciliación'
+        WHEN has_reac OR has_incident THEN 'Pendiente conciliación'
         ELSE 'Material sin recibir'
        END AS workflow_state,
        CASE
@@ -85,6 +89,6 @@ SELECT snapshot_id,company,sc_no,sc_pos,article,description,project,
         WHEN approved_qty>received_qty OR approved_qty<0 THEN 'Cantidades inconsistentes'
         WHEN linked_po=0 OR NOT any_po_approved THEN 'Sin PO aprobado'
         WHEN received_qty=0 AND has_reac THEN 'REAC sin recepcion formal'
-        WHEN received_qty=0 AND incident_open AND NOT possible_arrival THEN 'Incidencia sin llegada acreditada'
+        WHEN received_qty=0 AND has_incident AND NOT (incident_open AND possible_arrival) THEN 'Incidencia sin llegada acreditada'
         ELSE NULL END AS workflow_issue
 FROM facts
