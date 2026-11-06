@@ -103,3 +103,8 @@ def test_sc_workflow_schema_is_additive():
     assert "PRIMARY KEY(snapshot_id,company,sc_no,sc_pos)" in sql
     assert "DROP TABLE" not in sql.upper()
     assert "DELETE FROM" not in sql.upper()
+
+def test_no_receipt_rejects_historical_incidents():
+    from scripts.build_sc_workflow import QUERY
+    assert "WHEN has_reac OR has_incident THEN 'Pendiente conciliación'" in QUERY
+    assert "true AS has_incident" in QUERY
