@@ -20,27 +20,47 @@ from src.reconcile import parse_receipt, parse_incident
 
 def classify_position(ordered, delivered, approved, records, full_match=True,
                       other_owners=False, transfer_context=False):
-    """Classification deliberately does NOT invent ERP movement semantics."""
+    """Internal P3 triage: never assert a physical duplicate or a confirmed return."""
     if not full_match:
-        return "FUENTE_INCONSISTENTE", "Los movimientos no coinciden con el CSV completo; revisar origen y filtro."
+        return "FUENTE_INCONSISTENTE", "P3-FUENTE: registros de recepcion o SC no coinciden con el universo completo; contrastar extracto ERP y clave PO/posicion."
     if other_owners:
-        return "PEDIDO_COMPARTIDO", "La posicion PO pertenece a otras SC del universo completo; revisar asignacion."
+        return "PEDIDO_COMPARTIDO", "P3-VINCULO: la posicion PO aparece en otras SC del universo completo; revisar asignacion antes de conciliar."
     if ordered is None:
-        return "CANTIDAD_PEDIDA_INDETERMINADA", "No se puede determinar cantidad pedida."
+        return "CANTIDAD_PEDIDA_INDETERMINADA", "P3-CANTIDAD: cantidad pedida real indeterminada; verificar origen ERP."
+    # PEDIDA REAL=0 is a cancelled PO. A transferred SC is compatible with
+    # cancellation downstream, not evidence of an open order.
+    if ordered == 0:
+        if approved == 0 and transfer_context:
+            return "PEDIDO_CANCELADO_CON_HISTORICO", ""
+        if delivered > 0 or approved > 0:
+            return "CANCELACION_CON_MOVIMIENTOS_PENDIENTES", (
+                "P3-CANCELACION: pedido real cancelado (0), pero existen "
+                "movimientos entregados/aprobados; revisar anulacion y trazabilidad ERP."
+            )
+        return "PEDIDO_CANCELADO", ""
     if approved > ordered:
-        return "APROBADO_EXCEDE_PEDIDO", "Aprobado supera cantidad pedida; requiere revision."
-    if ordered == 0 and delivered > 0 and approved == 0 and transfer_context:
-        return "TRANSFERIDA_NOMINAL_CONFORME", ""
-    if ordered == 0 and delivered > 0:
-        return "PEDIDO_CERO_CON_ENTREGA", "Pedido real 0 con entrega positiva; no se ha confirmado conciliacion nominal y transferencia."
+        return "APROBADO_EXCEDE_PEDIDO", (
+            "P3-EXCESO_APROBADO: aprobado supera la cantidad pedida; "
+            "verificar rectificaciones y documentos de aceptacion ERP."
+        )
     if approved < ordered and delivered > ordered:
-        return "APROBACION_INCOMPLETA_CON_SOBREENTREGA", "Entregado supera pedido y aprobado aun no cubre pedido; revisar movimientos."
+        difference=delivered-ordered
+        pending=ordered-approved
+        return "APROBACION_INCOMPLETA_CON_SOBREENTREGA", (
+            f"P3-REGULARIZACION_PENDIENTE: entregado supera pedido en {difference}; "
+            f"faltan {pending} para cubrir la cantidad pedida con aprobaciones. "
+            "Posible regularizacion o recepcion repetida (NO confirmada); "
+            "revisar partes de recepcion, rechazos, devoluciones y aceptaciones ERP."
+        )
     if approved == ordered and delivered > ordered:
-        # The gross quantity is greater but approval coverage is coherent;
-        # an unapproved gross movement is NOT necessarily a duplicate.
+        # Extra gross receipts could be regularization. Keep the original gross
+        # quantities and distinguish them from approved coverage.
         return "COBERTURA_APROBADA_CONFORME", ""
     if delivered > ordered:
-        return "SOBREENTREGA_SIN_CONCILIAR", "Entregas mayores que pedido sin conciliacion concluyente."
+        return "SOBREENTREGA_SIN_CONCILIAR", (
+            "P3-SOBREENTREGA: entregado supera pedido sin conciliacion "
+            "cuantitativa concluyente; contrastar movimientos ERP."
+        )
     return "SIN_EXCESO", ""
 
 
@@ -147,7 +167,7 @@ def write_report(path, rows):
         writer=csv.writer(fh,delimiter=";",quoting=csv.QUOTE_MINIMAL)
         writer.writerow(["PEDIDO","POSICIÓN PO","SC","POSICIÓN SC","ARTÍCULO",
                          "PEDIDO CANTIDAD","ENTREGADO","APROBADO",
-                         "RECEPCIONES","INCIDENCIAS","CÓDIGO","COMENTARIO"])
+                         "RECEPCIONES","INCIDENCIAS","CÓDIGO","COMENTARIO INTERNO"])
         for x in rows:
             if not x["comment"]:
                 continue
