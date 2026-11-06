@@ -11,3 +11,5 @@ CREATE TABLE IF NOT EXISTS planning.sc_workflow_status(
 );
 CREATE INDEX IF NOT EXISTS ix_sc_workflow_by_state ON planning.sc_workflow_status(snapshot_id,workflow_state);
 CREATE INDEX IF NOT EXISTS ix_sc_workflow_by_project ON planning.sc_workflow_status(snapshot_id,project);
+GRANT SELECT ON planning.sc_workflow_status TO compras_reader;
+GRANT SELECT, INSERT, UPDATE ON planning.sc_workflow_status TO compras_importer;
