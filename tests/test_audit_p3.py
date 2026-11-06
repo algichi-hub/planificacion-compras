@@ -125,3 +125,27 @@ def test_context_must_match_exactly_not_merely_nominal():
     wrong={key:{(Decimal("100"),Decimal("0"),"Libre")}}
     result=analyse_rows([p],[r],owners,signatures,{},wrong)[0]
     assert result["status"]=="CANCELACION_CON_MOVIMIENTOS_PENDIENTES"
+
+
+def test_unresolved_reconciliation_generates_internal_comment():
+    for ordered,delivered,approved in [(12,34,4),(11,18,9),(4,5,0)]:
+        status,note=classify_position(Decimal(ordered),Decimal(delivered),Decimal(approved),[])
+        assert status=="APROBACION_INCOMPLETA_CON_SOBREENTREGA"
+        assert note.startswith("P3-REGULARIZACION_PENDIENTE:")
+        assert "NO confirmada" in note
+        assert "partes de recepcion" in note
+        assert str(Decimal(delivered)-Decimal(ordered)) in note
+        assert str(Decimal(ordered)-Decimal(approved)) in note
+
+
+def test_cancellation_with_approved_receipts_needs_comment():
+    status,note=classify_position(Decimal(0),Decimal(100),Decimal(1),[],
+                                  transfer_context=True)
+    assert status=="CANCELACION_CON_MOVIMIENTOS_PENDIENTES"
+    assert note.startswith("P3-CANCELACION:")
+
+
+def test_full_approval_with_gross_overreceipt_is_only_possible_regularization():
+    status,note=classify_position(Decimal(42),Decimal(84),Decimal(42),[])
+    assert status=="COBERTURA_APROBADA_CONFORME"
+    assert note==""
