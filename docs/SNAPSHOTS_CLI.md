@@ -36,3 +36,19 @@ Esta operación es irreversible a través de la aplicación; realizar respaldo s
 **No se ha eliminado ningún snapshot en Neon durante esta implementación.**
 
 El campo `snapshot_date` es único: borrar un snapshot permite posteriormente reutilizar su fecha de corte, pero solo después de una operación explícita y auditada.
+
+## Importación parcial por fecha de aprobación SC
+
+```powershell
+python scripts/import_snapshot.py --date 2026-11-06 --from 2025-01-20 --input entrada
+```
+
+`--from` aplica un corte **inclusivo** sobre `FECHA APROBACIÓN` del fichero `SC_FAS.csv`, **no** sobre creación SC, fecha de pedido ni fecha de recepción. La fecha se pasa como ISO `YYYY-MM-DD`.
+
+Se selecciona toda la solicitud (compañía + número SC) si cualquiera de sus registros tiene aprobación igual o posterior al corte; se mantienen todas sus posiciones y sus enlaces PO. Se importan únicamente recepciones e incidencias cuya pareja pedido/posición aparezca vinculada a las SC seleccionadas. Se incluyen las recepciones independientemente de su fecha; sin filtro se conserva la importación habitual completa.
+
+Si alguna SC seleccionada presenta fechas de aprobación distintas, se conserva entera y se registra `SC_APPROVAL_DATE_CONFLICT`. Si faltan fechas o son ilegibles, el filtrado se aborta para evitar excluir registros sin conocimiento. Las filas estructuralmente malformadas se registran por la vía normal.
+
+`audit.snapshots.sc_approved_from` registra el corte; es `NULL` si no hubo filtro. Los hashes de origen son de los CSV completos. Los contadores de progreso reportan total, incluidos, excluidos y malformados. Las cifras agregadas del tablero son **solo del universo de SC seleccionadas** y no equivalen al total del ERP.
+
+Si una posición PO coincide con solicitudes externas al universo seleccionado, la pertenencia de sus recepciones debe revisarse en la auditoría, porque el CSV de recepciones no contiene la compañía.
