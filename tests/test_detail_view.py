@@ -42,9 +42,9 @@ def test_vertical_trace_groups_two_receipts_and_order_without_receipt():
     assert view.loc[view.Campo=="Cantidad pedida","Valor"].tolist()==["4,000000","24,000000"]
     receptions=receptions_table(original)
     assert receptions.loc[receptions.Campo=="Recepción 1","Valor"].tolist()==[
-        "762514 (01/10/2026, 0, 1)"]
+        "762514 (01/10/2026, Re: —, Ap: 0, En: 1)"]
     assert receptions.loc[receptions.Campo=="Recepción 2","Valor"].tolist()==[
-        "767054 (05/10/2026, 0, 4)"]
+        "767054 (05/10/2026, Re: —, Ap: 0, En: 4)"]
     assert "Movimiento 1" not in view.Campo.tolist()
     assert "Estado recepción" not in view.Campo.tolist()
     assert "Estado vínculo" not in view.Campo.tolist()
@@ -66,9 +66,9 @@ def test_single_and_repeated_receipt_number_are_not_merged():
     ])
     view=receptions_table(frame)
     assert view.loc[view.Campo=="Recepción 1","Valor"].iloc[0]==(
-        "000123 (06/11/2026, 100, 120,5)")
+        "000123 (06/11/2026, Re: —, Ap: 100, En: 120,5)")
     assert view.loc[view.Campo=="Recepción 2","Valor"].iloc[0]==(
-        "000123 (07/11/2026, 0, 10,25)")
+        "000123 (07/11/2026, Re: —, Ap: 0, En: 10,25)")
     assert len(view.loc[view.Campo.str.startswith("Recepción")])==2
     assert len(receptions_table(frame.iloc[:1]).loc[
         lambda df: df.Campo.str.startswith("Recepción")])==1
@@ -114,17 +114,41 @@ def test_detail_state_uses_same_pastel_as_sc_general():
         assert all(f"background-color: {color}" in x for x in result)
 
 
-def test_planned_date_only_strictly_overdue_and_bold_red():
+def test_planned_date_text_only_semantic_colors_on_boundaries():
     today=date(2026,11,6)
-    for value,overdue in [("05/11/2026",True),("06/11/2026",False),
-                          ("07/11/2026",False),("—",False)]:
-        row=pd.Series({"Campo":"Fecha planificada","Valor":value})
-        styles=detail_row_style(row,today)
+    cases=[
+        ("05/11/2026", "#B91C1C"), # overdue
+        ("06/11/2026", "#C2410C"), # today: <=7 days
+        ("12/11/2026", "#C2410C"), # 6 days
+        ("13/11/2026", "#C2410C"), # 7 days
+        ("14/11/2026", "#A16207"), # 8 days
+        ("20/11/2026", "#A16207"), # 14 days
+        ("21/11/2026", "#15803D"), # 15 days
+        ("22/12/2026", "#15803D"), # far away
+    ]
+    for value,color in cases:
+        styles=detail_row_style(pd.Series({"Campo":"Fecha planificada","Valor":value}), today)
         assert len(styles)==2
-        assert all("background-color: #FEE2E2" in x and
-                   "font-weight: bold" in x and "color: #B91C1C" in x
-                   for x in styles) if overdue else styles==["",""]
+        assert all(f"color: {color}" in x and "font-weight: bold" in x
+                   and "background" not in x for x in styles)
+    assert detail_row_style(pd.Series({"Campo":"Fecha planificada","Valor":"—"}),today)==["",""]
     assert detail_row_style(pd.Series({"Campo":"Proveedor","Valor":"05/11/2026"}),today)==["",""]
+
+
+def test_optional_received_quantity_is_never_guessed_from_delivered():
+    frame=pd.DataFrame([
+        {"pedido":"X","posicion_pedido":"1","parte_recepcion":"RX",
+         "fecha_recepcion":date(2026,11,6),"cantidad_entregada":Decimal("12"),
+         "cantidad_aprobada":Decimal("8")},
+        {"pedido":"X","posicion_pedido":"1","parte_recepcion":"RY",
+         "fecha_recepcion":date(2026,11,7),"cantidad_recibida":Decimal("10,5".replace(",",".")),
+         "cantidad_entregada":Decimal("12"),"cantidad_aprobada":Decimal("8")}
+    ])
+    result=receptions_table(frame)
+    assert result.loc[result.Campo=="Recepción 1","Valor"].iloc[0] == (
+        "RX (06/11/2026, Re: —, Ap: 8, En: 12)")
+    assert result.loc[result.Campo=="Recepción 2","Valor"].iloc[0] == (
+        "RY (07/11/2026, Re: 10,5, Ap: 8, En: 12)")
 
 
 def test_receipts_group_by_po_and_retain_duplicate_numbers():
@@ -142,4 +166,4 @@ def test_receipts_group_by_po_and_retain_duplicate_numbers():
     view=receptions_table(frame)
     assert view.Campo.tolist()==["Pedido/pos","Recepción 1","Recepción 2","Pedido/pos","Recepción 1"]
     assert view.loc[view.Campo=="Pedido/pos","Valor"].tolist()==["A/10","B/20"]
-    assert view.loc[view.Campo=="Recepción 2","Valor"].tolist()==["00001 (02/11/2026, 4, 6)"]
+    assert view.loc[view.Campo=="Recepción 2","Valor"].tolist()==["00001 (02/11/2026, Re: —, Ap: 4, En: 6)"]
