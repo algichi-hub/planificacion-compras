@@ -46,3 +46,17 @@ def test_deletion_order_contains_dependencies_before_parents():
     assert CHILD_TABLES.index("core.sc_po_links")<CHILD_TABLES.index("core.po_lines")
     assert CHILD_TABLES.index("core.reac_refs")<CHILD_TABLES.index("core.sc_lines")
     assert TABLES[-1]=="audit.snapshots"
+
+def test_reconciliation_progress_has_eight_milestones():
+    import ast
+    from pathlib import Path
+    path=Path(__file__).resolve().parents[1]/"scripts"/"import_snapshot.py"
+    tree=ast.parse(path.read_text(encoding="utf-8"))
+    calls=[node for node in ast.walk(tree)
+           if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute)
+           and node.func.attr=="update"
+           and isinstance(node.func.value,ast.Name)
+           and node.func.value.id=="progress"]
+    assert len(calls)==8
+    assert all(len(call.args)==1 and isinstance(call.args[0],ast.Constant)
+               and call.args[0].value==1 for call in calls)
