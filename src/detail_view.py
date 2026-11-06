@@ -45,43 +45,76 @@ def _compact_quantity(value):
 
 
 def transpose_trace(trace, workflow_state=None):
-    """One vertical SC-status row, PO fields once, then one row per receipt.
-
-    The source query is ordered by PO and receipt date. All actual receipt
-    movements are preserved, including repeated receipt numbers. Rows with
-    no receipt are not mistakenly counted as a reception.
-    """
+    """General SC/PO detail. Each PO appears once, without receipt rows."""
     rows = []
     if workflow_state is not None and not pd.isna(workflow_state):
         rows.append({"Campo": "Estado SC", "Valor": display_value(workflow_state)})
     seen_orders = set()
-    receipt_count = {}
     for _, record in trace.iterrows():
+        po = (record.get("pedido"), record.get("posicion_pedido"))
+        if po in seen_orders:
+            continue
+        seen_orders.add(po)
+        rows.append({"Campo": "Pedido/pos",
+                     "Valor": f"{display_value(po[0])}/{display_value(po[1])}"})
+        for name in ("articulo_pedido", "proveedor", "cantidad_pedida",
+                     "fecha_planificada"):
+            if name in trace.columns:
+                rows.append({"Campo": LABELS[name],
+                             "Valor": display_value(record[name])})
+    return pd.DataFrame(rows, columns=["Campo", "Valor"])
+
+
+def receptions_table(trace):
+    """Separate vertical table of real receptions, grouped by PO position.
+
+    Keep each original receipt movement even if its receipt number repeats.
+    Omit empty PO groups, and never invent missing receipts.
+    """
+    rows = []
+    seen_orders = set()
+    counts = {}
+    for _, record in trace.iterrows():
+        receipt = record.get("parte_recepcion")
+        if receipt is None or pd.isna(receipt) or not str(receipt).strip():
+            continue
         po = (record.get("pedido"), record.get("posicion_pedido"))
         if po not in seen_orders:
             seen_orders.add(po)
-            receipt_count[po] = 0
-            rows.append({"Campo": "Pedido", "Valor": display_value(po[0])})
-            for name in ("posicion_pedido", "articulo_pedido", "proveedor",
-                         "cantidad_pedida", "fecha_planificada"):
-                if name in trace.columns:
-                    rows.append({
-                        "Campo": LABELS[name],
-                        "Valor": display_value(record[name]),
-                    })
-        receipt = record.get("parte_recepcion")
-        if receipt is not None and not pd.isna(receipt) and str(receipt).strip():
-            receipt_count[po] += 1
-            rows.append({
-                "Campo": f"Recepción {receipt_count[po]}",
-                "Valor": (
-                    f"{display_value(receipt)} "
-                    f"({display_value(record.get('fecha_recepcion'))}, "
-                    f"{_compact_quantity(record.get('cantidad_aprobada'))}, "
-                    f"{_compact_quantity(record.get('cantidad_entregada'))})"
-                ),
-            })
+            counts[po] = 0
+            rows.append({"Campo": "Pedido/pos",
+                         "Valor": f"{display_value(po[0])}/{display_value(po[1])}"})
+        counts[po] += 1
+        rows.append({
+            "Campo": f"Recepción {counts[po]}",
+            "Valor": (
+                f"{display_value(receipt)} "
+                f"({display_value(record.get('fecha_recepcion'))}, "
+                f"{_compact_quantity(record.get('cantidad_aprobada'))}, "
+                f"{_compact_quantity(record.get('cantidad_entregada'))})"
+            ),
+        })
     return pd.DataFrame(rows, columns=["Campo", "Valor"])
+
+
+def detail_row_style(row, today):
+    """Color SC status and strictly overdue planned dates across both cells."""
+    from src.sc_row_styles import STATE_COLORS
+
+    campo = row.get("Campo")
+    if campo == "Estado SC":
+        color = STATE_COLORS.get(row.get("Valor"))
+        if color:
+            return [f"background-color: {color}; color: #111827"] * len(row)
+    if campo == "Fecha planificada":
+        value = row.get("Valor")
+        try:
+            planned = datetime.strptime(str(value), "%d/%m/%Y").date()
+        except (ValueError, TypeError):
+            return [""] * len(row)
+        if planned < today:
+            return ["background-color: #FEE2E2; color: #B91C1C; font-weight: bold"] * len(row)
+    return [""] * len(row)
 
 
 def vertical_records(frame, title, labels=None):
