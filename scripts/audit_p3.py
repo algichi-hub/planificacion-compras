@@ -86,6 +86,11 @@ def inspect_universe(root, keys):
                     parse_incident(record)  # preserve validation path
                     incidents[key]+=1
         scanned[filename]=(n,malformed)
+        if malformed:
+            raise ValueError(
+                f"{filename}: {malformed} malformed records in full input; "
+                "P3 source completeness cannot be guaranteed"
+            )
     return sc_owners,sc_context,full_receipts,incidents,scanned
 
 
@@ -160,6 +165,7 @@ def audit(snapshot_id,root,output):
         raise SystemExit("Set DATABASE_URL outside the repository")
     with psycopg.connect(url) as db:
         with db.cursor() as cur:
+            cur.execute("SET TRANSACTION READ ONLY")
             cur.execute("SELECT state FROM audit.snapshots WHERE id=%s",(snapshot_id,))
             if cur.fetchone() is None:
                 raise ValueError("Snapshot not found")
