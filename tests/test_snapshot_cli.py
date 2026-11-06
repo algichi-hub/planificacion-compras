@@ -104,7 +104,12 @@ def test_sc_workflow_schema_is_additive():
     assert "DROP TABLE" not in sql.upper()
     assert "DELETE FROM" not in sql.upper()
 
-def test_no_receipt_rejects_historical_incidents():
+def test_inc_reac_are_supplementary_not_workflow_states():
     from scripts.build_sc_workflow import QUERY
-    assert "WHEN has_reac OR has_incident THEN 'Pendiente conciliación'" in QUERY
     assert "true AS has_incident" in QUERY
+    assert "WHEN received_qty>0 THEN 'Pendiente aprobación'" in QUERY
+    assert "WHEN approved_qty>0 THEN 'Parcialmente aprobadas'" in QUERY
+    assert "WHEN approved_qty>=requested_qty THEN 'Completado'" in QUERY
+    assert "WHEN has_reac OR has_incident THEN 'Pendiente conciliación'" not in QUERY
+    assert "'REAC (provisional)'" not in QUERY
+    assert "'Recibido con incidencia (provisional)'" not in QUERY
