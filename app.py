@@ -115,8 +115,13 @@ with tab2:
             # Native Streamlit selection leaves the table copyable and sortable.
             # Styler changes only cell colors; keep the original DataFrame for
             # row selection and trace lookup, and preserve native copy/sort.
-            colored_overview=(overview.style.apply(sc_row_style,axis=1)
-                              if "workflow_state" in overview.columns else overview)
+            # Keep company for exact SC-line lookup, but hide technical
+            # columns from the user-facing table. Data row order is unchanged.
+            visible_overview=overview.drop(
+                columns=["company","coverage_pct","workflow_issue"],errors="ignore"
+            )
+            colored_overview=(visible_overview.style.apply(sc_row_style,axis=1)
+                              if "workflow_state" in visible_overview.columns else visible_overview)
             event=st.dataframe(
                 colored_overview,use_container_width=True,hide_index=True,
                 on_select="rerun",selection_mode="single-row",
@@ -145,13 +150,14 @@ with tab2:
                     st.caption("Esta posición SC no tiene pedidos vinculados.")
                 if not detail.empty:
                     st.dataframe(
-                        detail.style.apply(detail_row_style,axis=1,today=madrid_today),
+                        detail.style.apply(detail_row_style,axis=1,today=madrid_today,
+                                           workflow_state=line.get("workflow_state")),
                         use_container_width=True,hide_index=True,
                         column_config={"Campo": st.column_config.TextColumn(width="medium"),
                                        "Valor": st.column_config.TextColumn(width="large")},
                         height=min(720,35*(len(detail)+1)+3),
                     )
-                    st.caption("Fechas planificadas (Madrid): vencida rojo; hasta 7 días naranja; 8–14 días amarillo; más de 14 días verde. Texto en negrita, sin fondo.")
+                    st.caption("Solo en estado «Material sin recibir»: fecha planificada vencida en rojo; hasta 7 días naranja; 8–14 días amarillo; más de 14 días verde. Texto en negrita, sin fondo.")
                     st.download_button(
                         "Exportar detalle CSV",
                         detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
@@ -167,7 +173,7 @@ with tab2:
                                  column_config={"Campo": st.column_config.TextColumn(),
                                                 "Valor": st.column_config.TextColumn()},
                                  height=min(720,35*(len(receptions)+1)+3))
-                    st.caption("Recepción: número (fecha, Re: recibida, Ap: aprobada, En: entregada). Re: — indica que el extracto actual no aporta una cantidad recibida independiente; no se sustituye por la entregada.")
+                    st.caption("Recepción: número (fecha, Re: recibida, Ap: aprobada, En: entregada). El origen no separa recibido de entregado: Re y En reflejan la misma cantidad de la recepción; no se suman entre sí.")
                     st.download_button(
                         "Exportar recepciones CSV",
                         receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
