@@ -90,8 +90,38 @@ def test_full_universe_reads_all_three_csv_files(tmp_path):
             writer=csv.writer(fh,delimiter=sep)
             writer.writerow([f"C{i}" for i in range(len(data))])
             writer.writerow(data)
-    owners,full,incidents,scanned=inspect_universe(tmp_path,{("761214","3")})
+    owners,context,full,incidents,scanned=inspect_universe(tmp_path,{("761214","3")})
     assert owners[("761214","3")]=={("210","761000","10")}
     assert sum(full[("761214","3")].values())==1
     assert incidents[("761214","3")]==1
     assert set(scanned)=={"SC_FAS.csv","Recepciones_Sevilla.csv","INC_FAS.csv"}
+
+def test_transferred_real_zero_reconciles_against_nominal_from_full_csv():
+    status,comment=classify_position(Decimal("0"),Decimal("100"),Decimal("0"),[],
+                                     transfer_context=True)
+    assert status=="TRANSFERIDA_NOMINAL_CONFORME"
+    assert comment==""
+
+
+def test_nominal_match_without_transferred_context_is_unresolved():
+    status,comment=classify_position(Decimal("0"),Decimal("100"),Decimal("0"),[],
+                                     transfer_context=False)
+    assert status=="PEDIDO_CERO_CON_ENTREGA"
+    assert comment
+
+
+def test_context_must_match_exactly_not_merely_nominal():
+    p=dict(po_no="760964",po_pos="1",company="210",sc_no="760544",sc_pos="40",
+           article="A",ordered=Decimal("0"))
+    r=dict(po_no="760964",po_pos="1",receipt_no="758793",article="A",
+           receipt_date=date(2026,5,21),delivered=Decimal("100"),
+           approved=Decimal("0"),status="Todo aprobado")
+    key=("760964","1")
+    owners={key:{("210","760544","40")}}
+    signatures={key:Counter([receipt_signature(r)])}
+    correct={key:{(Decimal("100"),Decimal("0"),"Transferida")}}
+    result=analyse_rows([p],[r],owners,signatures,{},correct)[0]
+    assert result["comment"]==""
+    wrong={key:{(Decimal("100"),Decimal("0"),"Libre")}}
+    result=analyse_rows([p],[r],owners,signatures,{},wrong)[0]
+    assert result["status"]=="PEDIDO_CERO_CON_ENTREGA"
