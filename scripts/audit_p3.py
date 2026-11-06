@@ -14,12 +14,12 @@ from pathlib import Path
 import psycopg
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.normalize import iter_source, indexed
+from src.normalize import iter_source, indexed, decimal_es
 from src.reconcile import parse_receipt, parse_incident
 
 
 def classify_position(ordered, delivered, approved, records, full_match=True,
-                      other_owners=False):
+                      other_owners=False, transfer_context=False):
     """Classification deliberately does NOT invent ERP movement semantics."""
     if not full_match:
         return "FUENTE_INCONSISTENTE", "Los movimientos no coinciden con el CSV completo; revisar origen y filtro."
@@ -29,8 +29,10 @@ def classify_position(ordered, delivered, approved, records, full_match=True,
         return "CANTIDAD_PEDIDA_INDETERMINADA", "No se puede determinar cantidad pedida."
     if approved > ordered:
         return "APROBADO_EXCEDE_PEDIDO", "Aprobado supera cantidad pedida; requiere revision."
+    if ordered == 0 and delivered > 0 and approved == 0 and transfer_context:
+        return "TRANSFERIDA_NOMINAL_CONFORME", ""
     if ordered == 0 and delivered > 0:
-        return "PEDIDO_CERO_CON_ENTREGA", "Pedido con cantidad 0 y recepciones positivas; verificar anulacion o regularizacion ERP."
+        return "PEDIDO_CERO_CON_ENTREGA", "Pedido real 0 con entrega positiva; no se ha confirmado conciliacion nominal y transferencia."
     if approved < ordered and delivered > ordered:
         return "APROBACION_INCOMPLETA_CON_SOBREENTREGA", "Entregado supera pedido y aprobado aun no cubre pedido; revisar movimientos."
     if approved == ordered and delivered > ordered:
@@ -52,6 +54,7 @@ def inspect_universe(root, keys):
     """Read every original CSV, not merely records imported by --from."""
     root=Path(root)
     sc_owners=defaultdict(set)
+    sc_context=defaultdict(set)
     full_receipts=defaultdict(Counter)
     incidents=defaultdict(int)
     scanned={}
@@ -69,6 +72,9 @@ def inspect_universe(root, keys):
                 key=(indexed(record,16),indexed(record,17))
                 if key in keys:
                     sc_owners[key].add((indexed(record,0),indexed(record,6),indexed(record,7)))
+                    sc_context[key].add((decimal_es(indexed(record,18)),
+                                         decimal_es(indexed(record,11)),
+                                         indexed(record,5)))
             elif filename=="Recepciones_Sevilla.csv":
                 key=(indexed(record,0),indexed(record,1))
                 if key in keys:
@@ -80,12 +86,13 @@ def inspect_universe(root, keys):
                     parse_incident(record)  # preserve validation path
                     incidents[key]+=1
         scanned[filename]=(n,malformed)
-    return sc_owners,full_receipts,incidents,scanned
+    return sc_owners,sc_context,full_receipts,incidents,scanned
 
 
-def analyse_rows(pos, receipts, universe_owners, universe_receipts, universe_incidents):
+def analyse_rows(pos, receipts, universe_owners, universe_receipts, universe_incidents, universe_sc_context=None):
     """Pure decision kernel; issues contain comments only for failed reconciliation."""
     rows=[]
+    universe_sc_context=universe_sc_context or {}
     all_keys={(p["po_no"],p["po_pos"]) for p in pos}
     by_key=defaultdict(list)
     for r in receipts:
@@ -104,8 +111,13 @@ def analyse_rows(pos, receipts, universe_owners, universe_receipts, universe_inc
             full_ok=False
         delivered=sum((r["delivered"] or Decimal(0) for r in db_receipts),Decimal(0))
         approved=sum((r["approved"] or Decimal(0) for r in db_receipts),Decimal(0))
+        context=universe_sc_context.get(key,set())
+        # This explains a zero REAL order when the original nominal ordered
+        # quantity matches delivered and the ERP marks the PO as transferred.
+        transfer_context=(len(context)==1 and
+                          (delivered,Decimal(0),"Transferida") in context)
         status,comment=classify_position(p["ordered"],delivered,approved,db_receipts,
-                                         full_ok,bool(foreign_owners))
+                                         full_ok,bool(foreign_owners),transfer_context)
         rows.append(dict(po_no=p["po_no"],po_pos=p["po_pos"],
                          sc_no=p["sc_no"],sc_pos=p["sc_pos"],article=p["article"],
                          ordered=p["ordered"],delivered=delivered,approved=approved,
@@ -178,8 +190,8 @@ def audit(snapshot_id,root,output):
     if len(keys)!=len(positions):
         raise ValueError("PO position mapped to multiple SC; cannot produce one-to-one audit")
     print(f"Auditing {len(keys)} over-delivered PO positions against ALL input files...",flush=True)
-    owners,full_receipts,incidents,scanned=inspect_universe(root,keys)
-    results=analyse_rows(positions,receipts,owners,full_receipts,incidents)
+    owners,context,full_receipts,incidents,scanned=inspect_universe(root,keys)
+    results=analyse_rows(positions,receipts,owners,full_receipts,incidents,context)
     write_report(output,results)
     counts=Counter(x["status"] for x in results)
     print("CSV universe inspected:",scanned)
