@@ -241,17 +241,7 @@ def run_import(args):
                         if status!="verified":
                             issue_rows.append((sid,"SC_FAS.csv",None,"warning",status,f"PO {k}: conflicting or missing ordered quantities"))
                     progress.update(1)
-                    progress.set_postfix_str("Auditing coverage in Neon (may take time)",refresh=True)
-                    cur.execute("""
-                        SELECT company,sc_no,sc_pos,requested_qty,approved_qty
-                        FROM planning.v_sc_coverage
-                        WHERE snapshot_id=%s AND approved_qty>requested_qty
-                    """,(sid,))
-                    for comp,sc,pos,requested,approved in cur.fetchall():
-                        issue_rows.append((
-                            sid,"Recepciones_Sevilla.csv",None,"warning","APPROVED_EXCEEDS_REQUESTED",
-                            f"SC {comp}/{sc}/{pos}: requested={requested}, approved={approved}"
-                        ))
+                    progress.set_postfix_str("Saving import quality issues",refresh=True)
                     copy_rows(cur,"audit.import_issues",["snapshot_id","source_name","line_number","severity","issue_code","details"],issue_rows)
                     progress.update(1)
                     progress.set_postfix_str("Reconciliation complete",refresh=True)
@@ -260,7 +250,7 @@ def run_import(args):
         print("Validated snapshot",sid,"date",args.date)
         print("Source counts:",counts)
         print("Quality issues:",len(issue_rows))
-        print("NOT ACTIVE. Inspect audit.import_issues and coverage before --activate.")
+        print("NOT ACTIVE. Inspect audit.import_issues and run the separate P2 coverage audit before --activate.")
     return sid
 
 def activate(sid,allow_errors=False):
