@@ -35,3 +35,13 @@ No se modifica el importador ni el snapshot 6. El CSV P3 es un **reporte diagnó
 ## Límite de interpretación
 
 La conciliación numérica de `aprobado` o `CANTIDAD PEDIDO` **no demuestra que una recepción haya sido físicamente duplicada o anulada**. Para resolver físicamente ese extremo harían falta movimientos de devolución/anulación o evidencia documental adicional. No sumar cantidades de distintos artículos como una magnitud homogénea de stock.
+
+## Interpretación operativa acordada (P3)
+
+**Cancelación:** `PEDIDA REAL = 0` identifica un pedido cancelado, aunque la SC permanezca en estado `Transferida`. Si el ERP conserva una cantidad nominal y recepciones históricas con aprobación cero, el auditor etiqueta `PEDIDO_CANCELADO_CON_HISTORICO` sin inventar sobreentrega activa ni añadir un comentario de excepción. Si aún aparecen aprobaciones positivas, genera comentario `P3-CANCELACION` para revisión.
+
+**Regularización potencial:** el exceso bruto entregado puede reflejar movimientos históricos de regularización. Cuando `APROBADA = PEDIDA REAL` y el universo de fuentes coincide, se conserva `COBERTURA_APROBADA_CONFORME`, sin afirmar que haya un duplicado físico y sin emitir comentario excepcional.
+
+**Conciliación pendiente:** si `ENTREGADA > PEDIDA REAL > APROBADA`, el comentario interno generado usa el código `P3-REGULARIZACION_PENDIENTE`, cuantifica el exceso bruto entregado y la aprobación pendiente, y pide contrastar partes de recepción, rechazos, devoluciones y aceptaciones en el ERP. Esto cubre los tres pedidos 761596/1, 761695/29 y 761258/1 y otros casos equivalentes en futuras auditorías.
+
+El comentario interno está en la columna `COMENTARIO INTERNO` del CSV diagnóstico, **no se inserta ni se persiste en Neon**. Esto evita contaminar cantidades y estados históricos con hipótesis. El CSV se conserva como evidencia de auditoría y puede integrarse posteriormente en un modelo persistente de incidencias con identificador, estado y revisión humana.
