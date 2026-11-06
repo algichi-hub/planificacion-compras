@@ -151,7 +151,7 @@ with tab2:
                                        "Valor": st.column_config.TextColumn(width="large")},
                         height=min(720,35*(len(detail)+1)+3),
                     )
-                    st.caption("Las fechas planificadas anteriores a hoy (Madrid) se destacan en rojo.")
+                    st.caption("Fechas planificadas (Madrid): vencida rojo; hasta 7 días naranja; 8–14 días amarillo; más de 14 días verde. Texto en negrita, sin fondo.")
                     st.download_button(
                         "Exportar detalle CSV",
                         detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
@@ -163,11 +163,11 @@ with tab2:
                 if receptions.empty:
                     st.caption("Sin recepciones registradas para los pedidos vinculados.")
                 else:
-                    st.dataframe(receptions,use_container_width=True,hide_index=True,
-                                 column_config={"Campo": st.column_config.TextColumn(width="medium"),
-                                                "Valor": st.column_config.TextColumn(width="large")},
+                    st.dataframe(receptions,width="content",hide_index=True,
+                                 column_config={"Campo": st.column_config.TextColumn(),
+                                                "Valor": st.column_config.TextColumn()},
                                  height=min(720,35*(len(receptions)+1)+3))
-                    st.caption("Recepción: número (fecha, cantidad aprobada, cantidad entregada), agrupadas por pedido/pos.")
+                    st.caption("Recepción: número (fecha, Re: recibida, Ap: aprobada, En: entregada). Re: — indica que el extracto actual no aporta una cantidad recibida independiente; no se sustituye por la entregada.")
                     st.download_button(
                         "Exportar recepciones CSV",
                         receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
