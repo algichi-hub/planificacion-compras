@@ -79,37 +79,78 @@ with tab1:
             for col,(label,value) in zip(st.columns(4),[("Líneas SC",m.n_sc),("Cobertura completa",m.completas),("Cobertura parcial",m.parciales),("Sin conciliar",m.inciertas)]):
                 col.metric(label,int(value))
 with tab2:
-    search=st.text_input("Buscar SC, artículo o pedido","",key="sc_search",placeholder="Número SC o artículo")
-    conditions="s.snapshot_id=%s"
-    values=[sid]
-    if project!="Todos":
-        conditions+=" AND s.project=%s";values.append(project)
-    if search.strip():
-        conditions+=" AND (s.sc_no ILIKE %s OR s.article ILIKE %s OR EXISTS (SELECT 1 FROM core.sc_po_links l WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos AND l.po_no ILIKE %s))"
-        values.extend(["%"+search.strip()+"%"]*3)
-    if workflow_ready:
-        overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,CASE WHEN s.requested_qty>0 AND s.workflow_state<>'Pendiente conciliación' THEN LEAST(100,ROUND(100*s.approved_qty/s.requested_qty,2)) ELSE NULL END AS coverage_pct,s.workflow_state,s.workflow_issue FROM planning.sc_workflow_status s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
+    search=st.text_input("Buscar SC", "", key="sc_search",
+                         placeholder="Número exacto de SC")
+    sc_number=search.strip()
+    if not sc_number:
+        st.caption("Introduce un número de SC para visualizar todas sus posiciones.")
     else:
-        overview=query("SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,s.coverage_state,s.coverage_pct FROM planning.v_sc_coverage s WHERE "+conditions+" ORDER BY s.sc_no,s.sc_pos LIMIT 2000",tuple(values))
-    st.dataframe(overview,use_container_width=True,hide_index=True)
-    if len(overview)==2000:
-        st.warning("Se muestran las primeras 2.000 líneas. Refina la búsqueda para ver el resto.")
-    if not overview.empty:
-        options=list(range(len(overview)))
-        selected=st.selectbox("Examinar trazabilidad de una línea SC",options,format_func=lambda i:f"{overview.iloc[i]['sc_no']} / {overview.iloc[i]['sc_pos']} · {overview.iloc[i]['article']}")
-        line=overview.iloc[selected]
-        trace=query("""SELECT l.po_no,l.po_pos,p.vendor,p.ordered_qty,p.planned_date,
-               r.receipt_no,r.receipt_date,r.delivered_qty,r.approved_qty,r.erp_status,l.allocation_status
-               FROM core.sc_po_links l
-               JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=(l.snapshot_id,l.company,l.po_no,l.po_pos)
-               LEFT JOIN core.receipts r ON (r.snapshot_id,r.po_no,r.po_pos)=(l.snapshot_id,l.po_no,l.po_pos)
-               WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
-               ORDER BY l.po_no,l.po_pos,r.receipt_date,r.receipt_no""",
-               (sid,line["company"],line["sc_no"],line["sc_pos"]))
-        st.dataframe(trace,use_container_width=True,hide_index=True)
-        st.caption("Las cantidades de PO pueden repetirse por cada recepción en el detalle; no sumarlas desde esta tabla.")
-        st.download_button("Exportar trazabilidad CSV",trace.to_csv(index=False,sep=";",decimal=",").encode("utf-8-sig"),
-                           file_name="trazabilidad_sc.csv",mime="text/csv")
+        # The sidebar project filter intentionally does not restrict SC lookup:
+        # the user must see every position of the requested SC.
+        if workflow_ready:
+            overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
+                    s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
+                    CASE WHEN s.requested_qty>0 AND s.workflow_state<>'Pendiente conciliación'
+                         THEN LEAST(100,ROUND(100*s.approved_qty/s.requested_qty,2))
+                         ELSE NULL END AS coverage_pct,
+                    s.workflow_state,s.workflow_issue
+                    FROM planning.sc_workflow_status s
+                    WHERE s.snapshot_id=%s AND s.sc_no=%s
+                    ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,sc_number))
+        else:
+            overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
+                    s.project,s.requested_qty,s.ordered_qty,s.received_qty,
+                    s.approved_qty,s.coverage_state,s.coverage_pct
+                    FROM planning.v_sc_coverage s
+                    WHERE s.snapshot_id=%s AND s.sc_no=%s
+                    ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,sc_number))
+        if overview.empty:
+            st.info("No se encontraron posiciones para esa SC en el snapshot seleccionado.")
+        else:
+            st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
+            # Native Streamlit selection leaves the table copyable and sortable.
+            event=st.dataframe(
+                overview,use_container_width=True,hide_index=True,
+                on_select="rerun",selection_mode="single-row",
+                key=f"sc_overview_{sid}_{sc_number}",
+            )
+            selected_rows=event.selection.rows
+            if selected_rows:
+                line=overview.iloc[selected_rows[0]]
+                st.subheader(f"Detalle SC {line['sc_no']} / posición {line['sc_pos']}")
+                trace=query("""SELECT l.po_no AS pedido,l.po_pos AS posicion_pedido,
+                       p.article AS articulo_pedido,p.vendor AS proveedor,
+                       p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
+                       r.receipt_no AS parte_recepcion,r.receipt_date AS fecha_recepcion,
+                       r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada,
+                       r.erp_status AS estado_recepcion,l.allocation_status AS estado_vinculo,
+                       (SELECT string_agg(DISTINCT x.reac_no, ', ' ORDER BY x.reac_no)
+                        FROM core.reac_refs x
+                        WHERE x.snapshot_id=l.snapshot_id AND x.company=l.company
+                          AND x.sc_no=l.sc_no AND x.sc_pos=l.sc_pos
+                          AND x.po_no=l.po_no AND x.po_pos=l.po_pos) AS referencias_reac,
+                       (SELECT count(*) FROM core.incidents i
+                        WHERE i.snapshot_id=l.snapshot_id AND i.po_no=l.po_no
+                          AND i.po_pos=l.po_pos) AS numero_incidencias
+                       FROM core.sc_po_links l
+                       JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
+                           (l.snapshot_id,l.company,l.po_no,l.po_pos)
+                       LEFT JOIN core.receipts r ON (r.snapshot_id,r.po_no,r.po_pos)=
+                           (l.snapshot_id,l.po_no,l.po_pos)
+                       WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
+                       ORDER BY l.po_no,l.po_pos,r.receipt_date NULLS LAST,r.receipt_no""",
+                            (sid,line["company"],line["sc_no"],line["sc_pos"]))
+                if trace.empty:
+                    st.info("Esta posición SC no tiene pedidos vinculados.")
+                else:
+                    st.dataframe(trace,use_container_width=True,hide_index=True)
+                    st.caption("Cada fila representa una recepción del pedido. La cantidad pedida puede repetirse: no debe sumarse por recepción.")
+                    st.download_button(
+                        "Exportar detalle CSV",
+                        trace.to_csv(index=False,sep=";",decimal=",").encode("utf-8-sig"),
+                        file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
+                        mime="text/csv",
+                    )
 with tab3:
     st.subheader("REAC asociados a SC")
     reac=query("""SELECT r.sc_no,r.sc_pos,r.po_no,r.po_pos,r.reac_no,r.reac_article
