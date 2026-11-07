@@ -90,9 +90,10 @@ def overview_column_config():
             help="Estado operativo SC"),
     }
 
-def render_sc_detail(line, sid):
+def render_sc_detail(line, sid, context):
     """Read-only SC detail shared by individual and grouped views."""
     st.subheader(f"Detalle SC {line['sc_no']} / posición {line['sc_pos']}")
+    widget_prefix=f"{context}_{sid}_{line['company']}_{line['sc_no']}_{line['sc_pos']}"
     trace=query("""SELECT l.po_no AS pedido,l.po_pos AS posicion_pedido,
            p.article AS articulo_pedido,p.vendor AS proveedor,
            p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
@@ -118,6 +119,7 @@ def render_sc_detail(line, sid):
             column_config={"Campo": st.column_config.TextColumn(width="medium"),
                            "Valor": st.column_config.TextColumn(width="large")},
             height=min(720,35*(len(detail)+1)+3),
+            key=f"{widget_prefix}_detail",
         )
         st.caption("Solo en estado «Material sin recibir»: fecha planificada vencida en rojo; hasta 7 días naranja; 8–14 días amarillo; más de 14 días verde. Texto en negrita, sin fondo.")
         st.download_button(
@@ -125,6 +127,7 @@ def render_sc_detail(line, sid):
             detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
             file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
             mime="text/csv",
+            key=f"{widget_prefix}_download_detail",
         )
     st.markdown("#### Recepciones asociadas a esta posición SC")
     receptions=receptions_table(trace)
@@ -134,13 +137,15 @@ def render_sc_detail(line, sid):
         st.dataframe(receptions,width="content",hide_index=True,
                      column_config={"Campo": st.column_config.TextColumn(),
                                     "Valor": st.column_config.TextColumn()},
-                     height=min(720,35*(len(receptions)+1)+3))
+                     height=min(720,35*(len(receptions)+1)+3),
+                     key=f"{widget_prefix}_receptions")
         st.caption("Recepción: número (fecha, Re: cantidad recibida en admisión de entrada, Ap: cantidad aprobada tras el control de calidad). La diferencia Rec − Apr corresponde a unidades que todavía no constan como aprobadas; no implica necesariamente rechazo.")
         st.download_button(
             "Exportar recepciones CSV",
             receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
             file_name=f"recepciones_SC_{line['sc_no']}_{line['sc_pos']}.csv",
             mime="text/csv",
+            key=f"{widget_prefix}_download_receptions",
         )
     # REAC is keyed to the selected SC position; it is not an operational state.
     st.markdown("#### REAC asociados a esta posición SC")
@@ -157,7 +162,8 @@ def render_sc_detail(line, sid):
         reac_vertical=vertical_records(reac_detail,"REAC",{
             "referencia_reac":"Referencia REAC","articulo_reac":"Artículo REAC",
             "pedido":"Pedido","posicion_pedido":"Posición pedido"})
-        st.dataframe(reac_vertical,use_container_width=True,hide_index=True)
+        st.dataframe(reac_vertical,use_container_width=True,hide_index=True,
+                     key=f"{widget_prefix}_reac")
         st.caption("REAC documental: no se infiere cantidad rechazada ni estado de aprobación.")
     
     # INC has no company/SC identifier: link conservatively by PO/position
@@ -193,7 +199,8 @@ def render_sc_detail(line, sid):
             "coincidencia_articulo":"Coincidencia de artículo",
             "categoria":"Categoría","resuelta":"Resuelta",
             "observaciones":"Observaciones"})
-        st.dataframe(inc_vertical,use_container_width=True,hide_index=True)
+        st.dataframe(inc_vertical,use_container_width=True,hide_index=True,
+                     key=f"{widget_prefix}_inc")
         st.caption("INC vinculada por pedido y posición; el fichero INC carece de compañía/SC. Revisar las coincidencias de artículo y cualquier vinculación compartida.")
 
 with tab1:
@@ -263,7 +270,7 @@ with tab2:
             selected_rows=event.selection.rows
             if selected_rows:
                 line=overview.iloc[selected_rows[0]]
-                render_sc_detail(line, sid)
+                render_sc_detail(line, sid, context="seguimiento")
 
 # Shared, read-only group catalogue. Admin privileges are evaluated only in Manage.
 try:
@@ -335,7 +342,7 @@ with tab3:
                     if pd.isna(line.get("company")) or pd.isna(line.get("sc_pos")):
                         st.info("Esta SC no figura en el snapshot seleccionado; no hay detalle que consultar.")
                     else:
-                        render_sc_detail(line, sid)
+                        render_sc_detail(line, sid, context="group")
 
 with tab4:
     st.subheader("Manage")
