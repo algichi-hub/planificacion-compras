@@ -107,3 +107,18 @@ def test_group_sc_reporting_retains_read_only_and_selection():
     assert "write_bulk(" not in group_view
     assert 'selection_mode="single-row"' in group_view
     assert "format_sc_quantities(bulk_view.style).apply(" in group_view
+
+
+def test_manage_compact_grid_only_scoped_css():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    manage = app.split("with tab4:", 1)[1]
+    assert 'with st.container(key="manage_sc_grid"):' in manage
+    assert 'st.columns([2,5,1.35],gap=None,vertical_alignment="center")' in manage
+    assert '.st-key-manage_sc_grid [data-testid="stVerticalBlock"]' in manage
+    assert 'gap: 1px !important;' in manage
+    assert 'height: 34px !important;' in manage
+    assert 'border-radius: 0 !important;' in manage
+    assert '[class*="st-key-manage_delete_"] button' in manage
+    assert 'background: #FEF2F2 !important;' in manage
+    # No global input overrides affecting Seguimiento SC or Group SC.
+    assert 'input {' not in app.split("with tab4:", 1)[0]
