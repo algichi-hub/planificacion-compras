@@ -306,7 +306,6 @@ with tab3:
                     result["SC/Pos"]=result["sc_no"].astype(str)+"/"+result["sc_pos"].fillna("—").astype(str)
                     result.loc[result["sc_pos"].isna(),"SC/Pos"]=result.loc[result["sc_pos"].isna(),"sc_no"]
                     result["estado"]=result["estado"].fillna("No encontrada")
-                    counts=result["estado"].value_counts()
                     st.caption(f"{result['sc_no'].nunique()} SC · {len(result)} posiciones o referencias")
                     bulk_view=result[["SC/Pos","context_description","project","article",
                                       "description","requested_qty","ordered_qty",
@@ -317,8 +316,6 @@ with tab3:
                                  "approved_qty":"Apr"})
                     st.dataframe(format_sc_quantities(bulk_view.style),
                                  hide_index=True,use_container_width=True)
-                    st.dataframe(counts.rename_axis("Estado").reset_index(name="Posiciones"),
-                                 hide_index=True,width="content")
 
 with tab4:
     st.subheader("Manage")
