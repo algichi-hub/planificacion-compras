@@ -139,7 +139,12 @@ def render_sc_detail(line, sid, context):
                          ORDER BY source_line""",
                       (sid,line["company"],line["sc_no"],line["sc_pos"]))
     raw_records=source_rows["fields"].tolist() if not source_rows.empty else []
-    request=request_detail(line,raw_records)
+    sc_meta=query("""SELECT article,description,project,centre,project_director
+                     FROM core.sc_lines
+                     WHERE snapshot_id=%s AND company=%s AND sc_no=%s AND sc_pos=%s""",
+                  (sid,line["company"],line["sc_no"],line["sc_pos"]))
+    request_source=sc_meta.iloc[0] if not sc_meta.empty else line
+    request=request_detail(request_source,raw_records)
     plan=planning_detail(trace,raw_records)
     madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
     st.markdown("#### Datos de solicitud")
