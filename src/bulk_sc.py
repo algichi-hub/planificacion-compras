@@ -79,11 +79,19 @@ def write_bulk(admin_dsn, user, allowed_emails, operation, *, group_id=None,
         )
     elif operation == "edit_item":
         description = normalize_label(description, "Descripción", 500)
-        statement, args = (
-            "UPDATE planning.bulk_sc_items SET context_description=%s, "
-            "updated_at=now() WHERE id=%s AND group_id=%s RETURNING id",
-            (description, int(item_id), int(group_id)),
-        )
+        if sc_no is None:
+            statement, args = (
+                "UPDATE planning.bulk_sc_items SET context_description=%s, "
+                "updated_at=now() WHERE id=%s AND group_id=%s RETURNING id",
+                (description, int(item_id), int(group_id)),
+            )
+        else:
+            sc_no = normalize_sc(sc_no)
+            statement, args = (
+                "UPDATE planning.bulk_sc_items SET sc_no=%s,context_description=%s, "
+                "updated_at=now() WHERE id=%s AND group_id=%s RETURNING id",
+                (sc_no, description, int(item_id), int(group_id)),
+            )
     elif operation == "remove_item":
         statement, args = (
             "DELETE FROM planning.bulk_sc_items WHERE id=%s AND group_id=%s RETURNING id",
