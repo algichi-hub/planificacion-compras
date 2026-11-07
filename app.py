@@ -6,6 +6,8 @@ import pandas as pd
 import plotly.express as px
 import psycopg
 import streamlit as st
+from st_aggrid import AgGrid, JsCode, DataReturnMode
+from src.manage_grid import parse_manage_event, valid_existing_edit, apply_draft_edit
 from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
 from src.sc_overview import overview_display, overview_row_style
 from src.group_sc_view import group_overview, group_overview_source
@@ -390,195 +392,164 @@ with tab4:
             items_manage=query("""SELECT id,sc_no,context_description
                                   FROM planning.bulk_sc_items
                                   WHERE group_id=%s ORDER BY sc_no""",(group_id_manage,))
-            st.caption("Edita directamente la SC o la descripción y sal de la celda para guardar. "
-                       "Las altas se guardan cuando ambos campos están completos.")
-            st.markdown("""
-                <style>
-                /* Scoped exclusively to the inline Manage SC grid. */
-                .st-key-manage_sc_grid [data-testid="stVerticalBlock"] {
-                    gap: 1px !important;
-                }
-                /* Fixed 3-column grid even on narrow screens: X | SC | description. */
-                .st-key-manage_sc_grid [data-testid="stHorizontalBlock"] {
-                    display: grid !important;
-                    grid-template-columns: 38px minmax(100px, 2fr) minmax(140px, 5fr) !important;
-                    gap: 1px !important;
-                    align-items: center !important;
-                    min-width: 0 !important;
-                }
-                .st-key-manage_sc_grid [data-testid="stColumn"] {
-                    width: 100% !important;
-                    min-width: 0 !important;
-                    flex: none !important;
-                }
-                .st-key-manage_sc_grid [data-testid="stTextInput"] {
-                    margin: 0 !important;
-                }
-                /* BaseWeb draws the visible rounded border on a wrapper, not on input. */
-                .st-key-manage_sc_grid [data-testid="stTextInput"] [data-baseweb="input"],
-                .st-key-manage_sc_grid [data-testid="stTextInput"] [data-baseweb="base-input"],
-                .st-key-manage_sc_grid [data-testid="stTextInput"] [data-baseweb="input"] > div,
-                .st-key-manage_sc_grid [data-testid="stTextInput"] input {
-                    border-radius: 0 !important;
-                }
-                .st-key-manage_sc_grid [data-testid="stTextInput"] input {
-                    min-height: 34px !important;
-                    height: 34px !important;
-                    padding: 4px 8px !important;
-                    border-radius: 0 !important;
-                    font-size: 0.9rem !important;
-                }
-                .st-key-manage_sc_grid [class*="st-key-manage_delete_"] button,
-                .st-key-manage_sc_grid [class*="st-key-manage_cancel_draft_"] button {
-                    min-height: 34px !important;
-                    height: 34px !important;
-                    padding: 4px 6px !important;
-                    border-radius: 0 !important;
-                }
-                .st-key-manage_sc_grid [class*="st-key-manage_delete_"] button {
-                    color: #B91C1C !important;
-                    border: 1px solid #B91C1C !important;
-                    background: transparent !important;
-                }
-                .st-key-manage_sc_grid [class*="st-key-manage_delete_"] button:hover {
-                    background: #FEF2F2 !important;
-                }
-                </style>
-            """, unsafe_allow_html=True)
+            st.caption("Edita las celdas directamente. Se guardan al confirmar la edición.")
+            draft_key=f"manage_grid_drafts_{group_id_manage}"
+            revision_key=f"manage_grid_revision_{group_id_manage}"
+            st.session_state.setdefault(draft_key,{})
+            st.session_state.setdefault(revision_key,0)
 
-            def _invalidate_group_report():
+            def _refresh_manage():
                 query.clear()
-                st.session_state.pop("bulk_result", None)
-
-            def _save_existing_item(item_id, original_sc, original_description):
-                key_sc=f"manage_sc_{group_id_manage}_{item_id}"
-                key_desc=f"manage_desc_{group_id_manage}_{item_id}"
-                message_key=f"manage_status_{group_id_manage}_{item_id}"
-                sc_value=st.session_state[key_sc]
-                desc_value=st.session_state[key_desc]
-                if sc_value == original_sc and desc_value == original_description:
-                    st.session_state.pop(message_key, None)
-                    return
-                try:
-                    write_bulk(admin_dsn,identity,admin_emails,"edit_item",
-                               group_id=group_id_manage,item_id=item_id,
-                               sc_no=sc_value,description=desc_value)
-                except ValueError as exc:
-                    st.session_state[message_key]=str(exc)
-                except (psycopg.Error, PermissionError, RuntimeError):
-                    st.session_state[message_key]="Error de guardado. Revisa la conexión y vuelve a editar la celda."
-                else:
-                    _invalidate_group_report()
-                    st.session_state[message_key]="Guardado"
-
-            draft_key=f"manage_drafts_{group_id_manage}"
-            st.session_state.setdefault(draft_key, [])
-
-            def _add_blank_sc():
-                counter=int(st.session_state.get("manage_draft_counter",0))+1
-                st.session_state["manage_draft_counter"]=counter
-                st.session_state[draft_key].append(counter)
-
-            def _save_new_item(draft_id):
-                key_sc=f"manage_new_sc_{group_id_manage}_{draft_id}"
-                key_desc=f"manage_new_desc_{group_id_manage}_{draft_id}"
-                message_key=f"manage_new_status_{group_id_manage}_{draft_id}"
-                sc_value=st.session_state[key_sc].strip()
-                desc_value=st.session_state[key_desc].strip()
-                if not sc_value or not desc_value:
-                    st.session_state.pop(message_key,None)
-                    return  # Incomplete drafts must never be written to Neon.
-                try:
-                    write_bulk(admin_dsn,identity,admin_emails,"insert_item",
-                               group_id=group_id_manage,sc_no=sc_value,
-                               description=desc_value)
-                except ValueError as exc:
-                    st.session_state[message_key]=str(exc)
-                except (psycopg.Error, PermissionError, RuntimeError):
-                    st.session_state[message_key]="Error de guardado. Revisa la conexión e inténtalo de nuevo."
-                else:
-                    st.session_state[draft_key].remove(draft_id)
-                    st.session_state.pop(message_key,None)
-                    _invalidate_group_report()
+                st.session_state.pop("bulk_result",None)
+                st.session_state[revision_key]+=1
 
             @st.dialog("Confirmar borrado")
             def _confirm_remove_item(item_id, sc_number):
-                st.write(f"¿Borrar la SC **{sc_number}** de este grupo?")
-                st.caption("La eliminación no modifica los datos originales del ERP.")
-                cancel_col, confirm_col=st.columns(2)
+                st.write(f"¿Eliminar la SC **{sc_number}** de este grupo?")
+                st.caption("No se modificarán los registros originales del ERP.")
+                cancel_col,confirm_col=st.columns(2)
                 with cancel_col:
-                    if st.button("Cancelar",key=f"manage_cancel_{item_id}",use_container_width=True):
+                    if st.button("Cancelar",key=f"grid_cancel_{group_id_manage}_{item_id}",
+                                 use_container_width=True):
                         st.rerun()
                 with confirm_col:
-                    if st.button("Confirmar borrado",type="primary",
-                                 key=f"manage_confirm_{item_id}",use_container_width=True):
+                    if st.button("Confirmar borrado",key=f"grid_confirm_{group_id_manage}_{item_id}",
+                                 type="primary",use_container_width=True):
                         try:
                             write_bulk(admin_dsn,identity,admin_emails,"remove_item",
                                        group_id=group_id_manage,item_id=item_id)
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                            st.error(f"No se pudo borrar la SC: {type(exc).__name__}")
+                            st.error(f"No se pudo eliminar: {type(exc).__name__}")
                         else:
-                            _invalidate_group_report()
-                            for prefix in ("manage_sc_","manage_desc_","manage_status_"):
-                                st.session_state.pop(f"{prefix}{group_id_manage}_{item_id}",None)
+                            _refresh_manage()
                             st.rerun()
 
+            # The hidden row id is immutable; SC is text to retain leading zeros.
+            rows=items_manage[["id","sc_no","context_description"]].copy()
+            rows["id"]=rows["id"].astype(int)
+            rows["sc_no"]=rows["sc_no"].astype(str)
+            rows["context_description"]=rows["context_description"].astype(str)
+            for draft_id,draft in st.session_state[draft_key].items():
+                rows.loc[len(rows)]=[draft_id,draft["sc_no"],draft["context_description"]]
+            rows.insert(0,"delete","X")
+
+            delete_renderer=JsCode("""
+                function(params) {
+                    const b=document.createElement('button');
+                    b.type='button'; b.textContent='X';
+                    b.title=params.data.id < 0 ? 'Descartar nueva fila' : 'Eliminar SC';
+                    b.style.cssText='color:#B91C1C;background:transparent;border:1px solid #B91C1C;border-radius:0;padding:0;width:25px;height:25px;cursor:pointer;';
+                    return b;
+                }
+            """)
+            collect_event=JsCode("""
+                function({streamlitRerunEventTriggerName,eventData}) {
+                    if (!eventData || !eventData.data) return null;
+                    const row=eventData.data;
+                    const col=eventData.column ? eventData.column.getColId() : '';
+                    if (streamlitRerunEventTriggerName === 'cellClicked' && col === 'delete')
+                        return {type:'delete',id:row.id};
+                    if (streamlitRerunEventTriggerName === 'cellValueChanged'
+                        && (col === 'sc_no' || col === 'context_description'))
+                        return {type:'edit',id:row.id,field:col,value:String(eventData.newValue ?? '')};
+                    return null;
+                }
+            """)
+            grid_options={
+                "columnDefs":[
+                    {"field":"delete","headerName":"","width":38,"minWidth":38,"maxWidth":38,
+                     "pinned":"left","editable":False,"sortable":False,"resizable":False,
+                     "cellRenderer":delete_renderer,"cellStyle":{"paddingLeft":"5px","paddingRight":"0"}},
+                    {"field":"sc_no","headerName":"SC","minWidth":110,"width":170,
+                     "editable":True,"cellDataType":"text"},
+                    {"field":"context_description","headerName":"Descripción contextual",
+                     "minWidth":160,"flex":1,"editable":True,"cellDataType":"text"},
+                ],
+                "defaultColDef":{"sortable":False,"filter":False,"resizable":True,
+                                 "singleClickEdit":True},
+                "rowHeight":32,"headerHeight":32,
+                "getRowId":JsCode("function(p){ return String(p.data.id); }"),
+                "suppressRowClickSelection":True,
+                "stopEditingWhenCellsLoseFocus":True,
+                "ensureDomOrder":True,
+                "suppressMovableColumns":True,
+                "suppressCellFocus":False,
+            }
             st.markdown("**SC del grupo**")
-            with st.container(key="manage_sc_grid"):
-                h_action,h_sc,h_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")
-                h_action.caption(" ")
-                h_sc.caption("SC")
-                h_desc.caption("Descripción contextual")
-                for item in items_manage.itertuples(index=False):
-                    item_id=int(item.id)
-                    sc_before=str(item.sc_no)
-                    desc_before=str(item.context_description)
-                    sc_key=f"manage_sc_{group_id_manage}_{item_id}"
-                    desc_key=f"manage_desc_{group_id_manage}_{item_id}"
-                    st.session_state.setdefault(sc_key,sc_before)
-                    st.session_state.setdefault(desc_key,desc_before)
-                    c_action,c_sc,c_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")
-                    with c_action:
-                        if st.button("X",help="Borrar esta SC del grupo",key=f"manage_delete_{group_id_manage}_{item_id}",
-                                     use_container_width=True):
-                            _confirm_remove_item(item_id,sc_before)
-                    with c_sc:
-                        st.text_input("SC",key=sc_key,max_chars=40,
-                                      label_visibility="collapsed",
-                                      on_change=_save_existing_item,
-                                      args=(item_id,sc_before,desc_before))
-                    with c_desc:
-                        st.text_input("Descripción contextual",key=desc_key,max_chars=500,
-                                      label_visibility="collapsed",
-                                      on_change=_save_existing_item,
-                                      args=(item_id,sc_before,desc_before))
-                    status=st.session_state.get(f"manage_status_{group_id_manage}_{item_id}")
-                    if status and status != "Guardado":
-                        st.error(f"SC {sc_before}: {status}")
-                    elif status:
-                        st.caption(f"SC {sc_before}: ✓ Guardado")
-                for draft_id in list(st.session_state[draft_key]):
-                    sc_key=f"manage_new_sc_{group_id_manage}_{draft_id}"
-                    desc_key=f"manage_new_desc_{group_id_manage}_{draft_id}"
-                    d_action,d_sc,d_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")
-                    with d_action:
-                        if st.button("X",help="Descartar fila nueva",key=f"manage_cancel_draft_{group_id_manage}_{draft_id}",
-                                     use_container_width=True):
-                            st.session_state[draft_key].remove(draft_id)
+            grid_result=AgGrid(
+                rows,gridOptions=grid_options,
+                height=min(450,40+max(1,len(rows))*32),
+                theme="streamlit",allow_unsafe_jscode=True,
+                enable_enterprise_modules=False,
+                data_return_mode=DataReturnMode.CUSTOM,
+                custom_jscode_for_grid_return=collect_event,
+                update_on=["cellValueChanged","cellClicked"],
+                key=f"manage_grid_{group_id_manage}_{st.session_state[revision_key]}",
+                show_toolbar=False,show_search=False,show_download_button=False,
+                server_sync_strategy="server_wins",
+                custom_css={
+                    ".ag-root-wrapper":{"borderRadius":"0px !important"},
+                    ".ag-cell":{"borderRadius":"0px !important","paddingTop":"0px","paddingBottom":"0px"},
+                    ".ag-row":{"borderBottom":"1px solid var(--ag-border-color)"},
+                },
+            )
+            event=parse_manage_event(grid_result.get("type") and grid_result.raw_data
+                                    if hasattr(grid_result,"raw_data") else None)
+            if event:
+                row_id=event["id"]
+                if event["type"]=="delete":
+                    if row_id < 0:
+                        st.session_state[draft_key].pop(row_id,None)
+                        st.session_state[revision_key]+=1
+                        st.rerun()
+                    matched=items_manage.loc[items_manage["id"]==row_id]
+                    if len(matched)==1:
+                        _confirm_remove_item(row_id,str(matched.iloc[0]["sc_no"]))
+                elif row_id < 0:
+                    draft=st.session_state[draft_key].get(row_id)
+                    if draft is not None:
+                        draft,complete=apply_draft_edit(draft,event)
+                        st.session_state[draft_key][row_id]=draft
+                        if complete:
+                            try:
+                                write_bulk(admin_dsn,identity,admin_emails,"insert_item",
+                                           group_id=group_id_manage,sc_no=draft["sc_no"],
+                                           description=draft["context_description"])
+                            except ValueError as exc:
+                                st.error(str(exc))
+                            except (psycopg.Error,PermissionError,RuntimeError) as exc:
+                                st.error(f"No se pudo añadir la SC: {type(exc).__name__}")
+                            else:
+                                st.session_state[draft_key].pop(row_id,None)
+                                _refresh_manage()
+                                st.rerun()
+                else:
+                    try:
+                        sc_new,desc_new,unchanged=valid_existing_edit(event,items_manage)
+                        if not unchanged:
+                            write_bulk(admin_dsn,identity,admin_emails,"edit_item",
+                                       group_id=group_id_manage,item_id=row_id,
+                                       sc_no=sc_new,description=desc_new)
+                    except ValueError as exc:
+                        st.error(str(exc))
+                        st.session_state[revision_key]+=1
+                        st.rerun()
+                    except (psycopg.Error,PermissionError,RuntimeError) as exc:
+                        st.error(f"No se pudo guardar: {type(exc).__name__}")
+                        st.session_state[revision_key]+=1
+                        st.rerun()
+                    else:
+                        if not unchanged:
+                            _refresh_manage()
                             st.rerun()
-                    with d_sc:
-                        st.text_input("Nueva SC",key=sc_key,max_chars=40,
-                                      label_visibility="collapsed",placeholder="Número SC",
-                                      on_change=_save_new_item,args=(draft_id,))
-                    with d_desc:
-                        st.text_input("Nueva descripción",key=desc_key,max_chars=500,
-                                      label_visibility="collapsed",placeholder="Descripción contextual",
-                                      on_change=_save_new_item,args=(draft_id,))
-                    status=st.session_state.get(f"manage_new_status_{group_id_manage}_{draft_id}")
-                    if status:
-                        st.error(f"Nueva SC: {status}")
-                st.button("Añadir nueva SC",icon=":material/add:",on_click=_add_blank_sc,
-                          key=f"manage_add_row_{group_id_manage}")
+
+            if st.button("Añadir nueva SC",icon=":material/add:",
+                         key=f"manage_grid_add_{group_id_manage}"):
+                draft_id=-int(st.session_state.get("manage_grid_counter",0)+1)
+                st.session_state["manage_grid_counter"]=-draft_id
+                st.session_state[draft_key][draft_id]={"sc_no":"","context_description":""}
+                st.session_state[revision_key]+=1
+                st.rerun()
 
             with st.expander("Modificar grupo"):
                 with st.form(f"bulk_edit_group_{group_id_manage}"):
