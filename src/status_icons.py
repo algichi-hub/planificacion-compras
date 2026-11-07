@@ -36,7 +36,7 @@ def status_icon(state):
     name, color = STATUS_SYMBOLS[state]
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" '
-        f'width="24" height="24" fill="{color}">'
+        f'width="17" height="17" fill="{color}">'
         f'<path d="{PATHS[name]}"/></svg>'
     )
     return "data:image/svg+xml;utf8," + quote(svg, safe="")
