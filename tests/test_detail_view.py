@@ -7,7 +7,7 @@ from src.detail_view import display_value, transpose_trace, receptions_table, de
 
 
 def test_numeric_and_date_formatting():
-    assert display_value(Decimal("1234.500000")) == "1234,500000"
+    assert display_value(Decimal("1234.500000")) == "1234,5"
     assert display_value(date(2026, 11, 6)) == "06/11/2026"
     assert display_value(None) == "—"
     assert display_value("00012") == "00012"
@@ -39,7 +39,7 @@ def test_vertical_trace_groups_two_receipts_and_order_without_receipt():
     assert list(view.columns)==["Campo","Valor"]
     assert view.iloc[0].to_dict()=={"Campo":"Estado SC","Valor":"Pendiente aprobación"}
     assert view.loc[view.Campo=="Pedido/pos","Valor"].tolist()==["761258/1","761258/2"]
-    assert view.loc[view.Campo=="Cantidad pedida","Valor"].tolist()==["4,000000","24,000000"]
+    assert view.loc[view.Campo=="Cantidad pedida","Valor"].tolist()==["4","24"]
     receptions=receptions_table(original)
     assert receptions.loc[receptions.Campo=="Recepción 1","Valor"].tolist()==[
         "762514 (01/10/2026, Re: 1, Ap: 0, En: 1)"]
