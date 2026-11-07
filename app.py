@@ -138,7 +138,7 @@ with tab2:
                     overview_row_style,axis=1,today=madrid_today
                 ),use_container_width=True,hide_index=True,
                 column_config={
-                    name: st.column_config.NumberColumn(width="small")
+                    name: st.column_config.Column(width="small")
                     for name in ("Sol", "Ped", "Rec", "Apr")
                 },
                 on_select="rerun",selection_mode="single-row",
