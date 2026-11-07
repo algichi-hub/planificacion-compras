@@ -60,7 +60,7 @@ if project!="Todos":
     where+=" AND project=%s"
     params.append(project)
 
-tab1,tab2,tab3=st.tabs(["Resumen","Seguimiento SC","Bulk SC"])
+tab1,tab2,tab3,tab4=st.tabs(["Resumen","Seguimiento SC","Group SC","Manage"])
 has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
 workflow_ready=False
 if has_workflow_table:
@@ -251,14 +251,78 @@ with tab2:
                         "observaciones":"Observaciones"})
                     st.dataframe(inc_vertical,use_container_width=True,hide_index=True)
                     st.caption("INC vinculada por pedido y posición; el fichero INC carece de compañía/SC. Revisar las coincidencias de artículo y cualquier vinculación compartida.")
-with tab3:
-    st.subheader("Bulk SC")
-    st.caption("Grupos persistentes de SC con descripción contextual. Los estados proceden del snapshot seleccionado.")
-    try:
-        groups=query("SELECT id,name,description FROM planning.bulk_sc_groups ORDER BY name")
-    except Exception:
-        groups=pd.DataFrame()
+# Shared, read-only group catalogue. Admin privileges are evaluated only in Manage.
+try:
+    groups=query("SELECT id,name,description FROM planning.bulk_sc_groups ORDER BY name")
+except psycopg.Error:
+    groups=pd.DataFrame(columns=["id","name","description"])
 
+with tab3:
+    st.subheader("Group SC")
+    st.caption("Consulta e informes de grupos SC. Los estados y cantidades corresponden al snapshot seleccionado.")
+    if groups.empty:
+        st.info("Todavía no hay grupos SC disponibles.")
+    else:
+        group_id=int(st.selectbox(
+            "Grupo SC",groups["id"].tolist(),key="group_sc_select",
+            format_func=lambda x:groups.loc[groups.id==x,"name"].iloc[0],
+        ))
+        group_record=groups.loc[groups.id==group_id].iloc[0]
+        if str(group_record["description"] or "").strip():
+            st.caption(str(group_record["description"]))
+        items=query("""SELECT id,sc_no,context_description
+                       FROM planning.bulk_sc_items
+                       WHERE group_id=%s ORDER BY sc_no""",(group_id,))
+        st.dataframe(items[["sc_no","context_description"]].rename(columns={
+            "sc_no":"SC","context_description":"Descripción contextual"
+        }),hide_index=True,use_container_width=True)
+        if items.empty:
+            st.info("Este grupo todavía no tiene SC asociadas.")
+        else:
+            # Always query the selected snapshot when the user requests a report.
+            # Group records are lightweight and cached with the existing 10-min TTL.
+            if st.button("Consultar grupo",type="primary",key="group_sc_report"):
+                numbers=items["sc_no"].astype(str).tolist()
+                source_table=("planning.sc_workflow_status" if workflow_ready
+                              else "planning.v_sc_coverage")
+                status_column="workflow_state" if workflow_ready else "coverage_state"
+                group_status=query(f"""SELECT sc_no,sc_pos,article,description,project,
+                               requested_qty,ordered_qty,received_qty,approved_qty,
+                               {status_column} AS estado
+                               FROM {source_table}
+                               WHERE snapshot_id=%s AND sc_no=ANY(%s)
+                               ORDER BY sc_no,sc_pos""",(sid,numbers))
+                grouped=items[["sc_no","context_description"]].merge(
+                    group_status,on="sc_no",how="left",sort=False
+                )
+                st.session_state["bulk_result"]=(sid,group_id,grouped)
+            stored=st.session_state.get("bulk_result")
+            if stored and stored[0]==sid and stored[1]==group_id:
+                result=stored[2].copy()
+                if result.empty:
+                    st.info("No hay resultados en este grupo.")
+                else:
+                    result=result.drop(columns=["id"],errors="ignore")
+                    result["SC/Pos"]=result["sc_no"].astype(str)+"/"+result["sc_pos"].fillna("—").astype(str)
+                    result.loc[result["sc_pos"].isna(),"SC/Pos"]=result.loc[result["sc_pos"].isna(),"sc_no"]
+                    result["estado"]=result["estado"].fillna("No encontrada")
+                    counts=result["estado"].value_counts()
+                    st.caption(f"{result['sc_no'].nunique()} SC · {len(result)} posiciones o referencias")
+                    bulk_view=result[["SC/Pos","context_description","project","article",
+                                      "description","requested_qty","ordered_qty",
+                                      "received_qty","approved_qty","estado"]].rename(
+                        columns={"context_description":"Contexto","project":"Proyecto",
+                                 "description":"Descripción ERP","requested_qty":"Sol",
+                                 "ordered_qty":"Ped","received_qty":"Rec",
+                                 "approved_qty":"Apr"})
+                    st.dataframe(format_sc_quantities(bulk_view.style),
+                                 hide_index=True,use_container_width=True)
+                    st.dataframe(counts.rename_axis("Estado").reset_index(name="Posiciones"),
+                                 hide_index=True,width="content")
+
+with tab4:
+    st.subheader("Manage")
+    st.caption("Administración de grupos y componentes SC. Requiere acceso de administrador.")
     try:
         auth_configured=bool(st.secrets.get("auth"))
         admin_emails=str(st.secrets.get("BULK_ADMIN_EMAILS",""))
@@ -277,108 +341,110 @@ with tab3:
         elif st.button("Iniciar sesión con Google",key="bulk_login"):
             st.login("google")
     if not admin:
-        st.caption("Consulta disponible en modo lectura. La edición requiere una cuenta de administrador verificada y conexión de escritura restringida.")
-
-    if admin:
-        with st.expander("Crear grupo Bulk SC"):
+        st.info("La gestión requiere una cuenta administradora verificada y la conexión de escritura restringida.")
+    else:
+        with st.expander("Crear grupo"):
             with st.form("bulk_create_group"):
                 new_group=st.text_input("Nombre del grupo",max_chars=160)
+                new_description=st.text_area("Descripción del grupo",max_chars=500)
                 if st.form_submit_button("Guardar grupo"):
                     try:
-                        write_bulk(admin_dsn,identity,admin_emails,"create_group",name=new_group)
+                        write_bulk(admin_dsn,identity,admin_emails,"create_group",
+                                   name=new_group,description=new_description)
                         query.clear()
+                        st.session_state.pop("bulk_result",None)
                         st.rerun()
                     except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                         st.error(f"No se pudo guardar el grupo: {type(exc).__name__}")
 
-    if groups.empty:
-        st.info("Aún no hay grupos Bulk SC disponibles, o falta aplicar la migración 008.")
-    else:
-        group_id=int(st.selectbox("Grupo",groups["id"].tolist(),
-                    format_func=lambda x:groups.loc[groups.id==x,"name"].iloc[0]))
-        items=query("""SELECT id,sc_no,context_description
-                       FROM planning.bulk_sc_items
-                       WHERE group_id=%s ORDER BY sc_no""",(group_id,))
-        st.dataframe(items[["sc_no","context_description"]].rename(columns={
-            "sc_no":"SC","context_description":"Descripción contextual"
-        }),hide_index=True,use_container_width=True)
-        if admin:
+        if not groups.empty:
+            group_id_manage=int(st.selectbox(
+                "Grupo para gestionar",groups["id"].tolist(),key="manage_group_select",
+                format_func=lambda x:groups.loc[groups.id==x,"name"].iloc[0],
+            ))
+            selected_group=groups.loc[groups.id==group_id_manage].iloc[0]
+            items_manage=query("""SELECT id,sc_no,context_description
+                                  FROM planning.bulk_sc_items
+                                  WHERE group_id=%s ORDER BY sc_no""",(group_id_manage,))
+            st.dataframe(items_manage[["sc_no","context_description"]].rename(columns={
+                "sc_no":"SC","context_description":"Descripción contextual"
+            }),hide_index=True,use_container_width=True)
+
+            with st.expander("Modificar grupo"):
+                with st.form(f"bulk_edit_group_{group_id_manage}"):
+                    updated_name=st.text_input("Nombre",value=str(selected_group["name"]),max_chars=160)
+                    updated_description=st.text_area(
+                        "Descripción",value=str(selected_group["description"] or ""),max_chars=500
+                    )
+                    if st.form_submit_button("Guardar cambios"):
+                        try:
+                            write_bulk(admin_dsn,identity,admin_emails,"edit_group",
+                                       group_id=group_id_manage,name=updated_name,
+                                       description=updated_description)
+                            query.clear()
+                            st.session_state.pop("bulk_result",None)
+                            st.rerun()
+                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                            st.error(f"No se pudo modificar el grupo: {type(exc).__name__}")
+
+            with st.expander("Eliminar grupo"):
+                st.warning("Eliminar el grupo también retira todas sus SC del grupo. No modifica las SC del ERP.")
+                with st.form(f"bulk_remove_group_{group_id_manage}"):
+                    confirmed=st.checkbox("Confirmo la eliminación del grupo y todos sus componentes")
+                    if st.form_submit_button("Eliminar grupo",disabled=not confirmed):
+                        try:
+                            write_bulk(admin_dsn,identity,admin_emails,"remove_group",
+                                       group_id=group_id_manage)
+                            query.clear()
+                            st.session_state.pop("bulk_result",None)
+                            st.rerun()
+                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                            st.error(f"No se pudo eliminar el grupo: {type(exc).__name__}")
+
             with st.expander("Añadir o actualizar SC"):
-                with st.form("bulk_add_item"):
+                with st.form(f"bulk_add_item_{group_id_manage}"):
                     sc_entry=st.text_input("Número SC",max_chars=40)
                     context_entry=st.text_input("Descripción contextual",max_chars=500)
                     if st.form_submit_button("Guardar SC"):
                         try:
                             write_bulk(admin_dsn,identity,admin_emails,"add_item",
-                                       group_id=group_id,sc_no=sc_entry,description=context_entry)
+                                       group_id=group_id_manage,sc_no=sc_entry,
+                                       description=context_entry)
                             query.clear()
+                            st.session_state.pop("bulk_result",None)
                             st.rerun()
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                             st.error(f"No se pudo guardar la SC: {type(exc).__name__}")
-            if not items.empty:
+
+            if not items_manage.empty:
                 with st.expander("Editar o retirar una SC"):
-                    item_id=int(st.selectbox("Referencia",items["id"].tolist(),
-                               format_func=lambda x:items.loc[items.id==x,"sc_no"].iloc[0]))
-                    selected_item=items.loc[items.id==item_id].iloc[0]
+                    item_id=int(st.selectbox(
+                        "Referencia",items_manage["id"].tolist(),key="manage_item_select",
+                        format_func=lambda x:items_manage.loc[items_manage.id==x,"sc_no"].iloc[0],
+                    ))
+                    selected_item=items_manage.loc[items_manage.id==item_id].iloc[0]
                     with st.form(f"bulk_edit_{item_id}"):
-                        revised_description=st.text_input("Descripción",value=str(selected_item["context_description"]),max_chars=500)
+                        revised_description=st.text_input(
+                            "Descripción",value=str(selected_item["context_description"]),max_chars=500
+                        )
                         if st.form_submit_button("Actualizar descripción"):
                             try:
                                 write_bulk(admin_dsn,identity,admin_emails,"edit_item",
-                                           group_id=group_id,item_id=item_id,
+                                           group_id=group_id_manage,item_id=item_id,
                                            description=revised_description)
                                 query.clear()
+                                st.session_state.pop("bulk_result",None)
                                 st.rerun()
                             except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                                 st.error(f"No se pudo modificar: {type(exc).__name__}")
                     with st.form(f"bulk_remove_{item_id}"):
                         confirmed=st.checkbox("Confirmar retirada de esta SC del grupo")
-                        if st.form_submit_button("Retirar SC") and confirmed:
+                        if st.form_submit_button("Retirar SC",disabled=not confirmed):
                             try:
                                 write_bulk(admin_dsn,identity,admin_emails,"remove_item",
-                                           group_id=group_id,item_id=item_id)
+                                           group_id=group_id_manage,item_id=item_id)
                                 query.clear()
+                                st.session_state.pop("bulk_result",None)
                                 st.rerun()
                             except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                                 st.error(f"No se pudo retirar: {type(exc).__name__}")
-
-        if items.empty:
-            st.caption("Añade referencias SC para consultar su estado conjuntamente.")
-        elif st.button("Consultar grupo",type="primary"):
-            numbers=items["sc_no"].astype(str).tolist()
-            source_table=("planning.sc_workflow_status" if workflow_ready
-                          else "planning.v_sc_coverage")
-            status_column="workflow_state" if workflow_ready else "coverage_state"
-            group_status=query(f"""SELECT sc_no,sc_pos,article,description,project,
-                           requested_qty,ordered_qty,received_qty,approved_qty,
-                           {status_column} AS estado
-                           FROM {source_table}
-                           WHERE snapshot_id=%s AND sc_no=ANY(%s)
-                           ORDER BY sc_no,sc_pos""",(sid,numbers))
-            grouped=items[["sc_no","context_description"]].merge(
-                group_status,on="sc_no",how="left",sort=False
-            )
-            st.session_state["bulk_result"]=(sid,group_id,grouped)
-        stored=st.session_state.get("bulk_result")
-        if stored and stored[0]==sid and stored[1]==group_id:
-            result=stored[2].copy()
-            if result.empty:
-                st.info("No hay resultados en este grupo.")
-            else:
-                result=result.drop(columns=["id"],errors="ignore")
-                result["SC/Pos"]=result["sc_no"].astype(str)+"/"+result["sc_pos"].fillna("—").astype(str)
-                result.loc[result["sc_pos"].isna(),"SC/Pos"]=result.loc[result["sc_pos"].isna(),"sc_no"]
-                result["estado"]=result["estado"].fillna("No encontrada")
-                counts=result["estado"].value_counts()
-                st.caption(f"{result['sc_no'].nunique()} SC · {len(result)} posiciones o referencias")
-                bulk_view=result[["SC/Pos","context_description","project","article",
-                                  "description","requested_qty","ordered_qty",
-                                  "received_qty","approved_qty","estado"]].rename(
-                    columns={"context_description":"Contexto","project":"Proyecto",
-                             "description":"Descripción ERP","requested_qty":"Sol",
-                             "ordered_qty":"Ped","received_qty":"Rec",
-                             "approved_qty":"Apr"})
-                st.dataframe(format_sc_quantities(bulk_view.style),
-                             hide_index=True,use_container_width=True)
-                st.dataframe(counts.rename_axis("Estado").reset_index(name="Posiciones"),
-                             hide_index=True,width="content")
