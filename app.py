@@ -391,7 +391,7 @@ with tab4:
                 st.warning("Eliminar el grupo también retira todas sus SC del grupo. No modifica las SC del ERP.")
                 with st.form(f"bulk_remove_group_{group_id_manage}"):
                     confirmed=st.checkbox("Confirmo la eliminación del grupo y todos sus componentes")
-                    if st.form_submit_button("Eliminar grupo",disabled=not confirmed):
+                    if st.form_submit_button("Eliminar grupo") and confirmed:
                         try:
                             write_bulk(admin_dsn,identity,admin_emails,"remove_group",
                                        group_id=group_id_manage)
@@ -439,7 +439,7 @@ with tab4:
                                 st.error(f"No se pudo modificar: {type(exc).__name__}")
                     with st.form(f"bulk_remove_{item_id}"):
                         confirmed=st.checkbox("Confirmar retirada de esta SC del grupo")
-                        if st.form_submit_button("Retirar SC",disabled=not confirmed):
+                        if st.form_submit_button("Retirar SC") and confirmed:
                             try:
                                 write_bulk(admin_dsn,identity,admin_emails,"remove_item",
                                            group_id=group_id_manage,item_id=item_id)
