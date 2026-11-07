@@ -186,15 +186,18 @@ def test_group_overview_supports_empty_results_and_legacy_statuses():
 
 def test_group_sc_reuses_selected_sc_detail_sections():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    shared=app.split("def render_sc_detail(line, sid):",1)[1].split("\nwith tab1:",1)[0]
+    shared=app.split("def render_sc_detail(line, sid, context):",1)[1].split("\nwith tab1:",1)[0]
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     individual=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
-    assert 'render_sc_detail(line, sid)' in individual
-    assert 'render_sc_detail(line, sid)' in group
+    assert 'render_sc_detail(line, sid, context="seguimiento")' in individual
+    assert 'render_sc_detail(line, sid, context="group")' in group
     assert 'selection_mode="single-row"' in group
     assert 'on_select="rerun"' in group
     assert 'group_source.iloc[selected_index]' in group
     assert 'pd.isna(line.get("company"))' in group
+    assert 'widget_prefix=f"{context}_' in shared
+    assert 'key=f"{widget_prefix}_download_detail"' in shared
+    assert 'key=f"{widget_prefix}_download_receptions"' in shared
     for heading in (
         'Detalle SC',
         'Recepciones asociadas a esta posición SC',
