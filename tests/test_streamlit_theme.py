@@ -30,6 +30,9 @@ def test_both_native_theme_variants_defined_with_light_default():
 def test_light_defaults_and_custom_palette_not_global():
     theme=tomllib.loads(CONFIG.read_text(encoding="utf-8"))["theme"]
     assert theme["light"]["backgroundColor"]=="#FFFFFF"
+    assert theme["light"]["secondaryBackgroundColor"]=="#FFFFFF"
+    assert theme["light"]["sidebar"]["backgroundColor"]=="#FFFFFF"
+    assert theme["light"]["sidebar"]["secondaryBackgroundColor"]=="#FFFFFF"
     assert theme["light"]["borderColor"]=="#E5E7EB"
     assert theme["light"]["primaryColor"]=="#2563EB"
     # Global color overrides would bleed through to the dark mode.
