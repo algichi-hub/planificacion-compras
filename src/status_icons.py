@@ -17,8 +17,8 @@ PATHS = {
 STATUS_SYMBOLS = {
     "Completado": ("check_circle", "#15803D"),
     "Pendiente pedido": ("shopping_cart", "#B91C1C"),
-    "Material sin recibir": ("inventory_2", "#C2410C"),
-    "Pendiente aprobación": ("pending", "#A16207"),
+    "Material sin recibir": ("inventory_2", "#EA580C"),
+    "Pendiente aprobación": ("pending", "#CA8A04"),
     "Parcialmente aprobadas": ("pie_chart", "#2563EB"),
     "SC anulada": ("cancel", "#6B7280"),
     "Pendiente conciliación": ("help", "#6B7280"),
