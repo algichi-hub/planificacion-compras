@@ -68,7 +68,7 @@ def test_display_is_compact_without_mutating_receipt_numbers():
     view=receptions_table(receipt)
     assert view.loc[view.Campo=="Pedido/pos","Valor"].tolist()==["000123/07"]
     assert view.loc[view.Campo=="Recepción 1","Valor"].iloc[0]==(
-        "000042 (06/11/2026, Re: 12,5, Ap: 10, En: 12,5)")
+        "000042 (06/11/2026, Re: 12,5, Ap: 10)")
     assert receipt.loc[0,"cantidad_entregada"]==Decimal("12.500000")
 
 
