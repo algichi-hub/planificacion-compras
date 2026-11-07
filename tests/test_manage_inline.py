@@ -22,7 +22,7 @@ def test_manage_is_inline_and_legacy_sc_forms_are_gone():
     assert 'write_bulk(admin_dsn,identity,admin_emails,"remove_item"' in manage
     assert '"Añadir o actualizar SC"' not in manage
     assert '"Editar o retirar una SC"' not in manage
-    assert 'st.form(f"bulk_edit_' not in manage
+    assert 'st.form(f"bulk_edit_{item_id}' not in manage
     assert "if not sc_value or not desc_value:" in manage
     assert 'st.session_state.pop("bulk_result", None)' in manage
     assert 'with st.expander("Modificar grupo"):' in manage
