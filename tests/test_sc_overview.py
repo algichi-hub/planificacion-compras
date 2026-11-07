@@ -104,13 +104,13 @@ def test_symbol_icons_are_distinct_and_unknowns_are_safe():
     assert status_icon("not a known state") is None
 
 
-def test_material_and_approval_icons_use_requested_orange_and_ochre():
+def test_material_and_approval_icons_use_requested_orange_and_basic_yellow():
     from urllib.parse import unquote
     from src.status_icons import status_icon
     orange=unquote(status_icon("Material sin recibir"))
-    ochre=unquote(status_icon("Pendiente aprobación"))
+    yellow=unquote(status_icon("Pendiente aprobación"))
     assert 'fill="#EA580C"' in orange
-    assert 'fill="#CA8A04"' in ochre
+    assert 'fill="#EAB308"' in yellow
 
 
 def test_status_icons_are_70_percent_and_native_column_is_pinned():
@@ -124,3 +124,23 @@ def test_status_icons_are_70_percent_and_native_column_is_pinned():
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
     assert 'ImageColumn("", width=38, pinned=True' in app
     assert 'selection_mode="single-row"' in app
+
+
+def test_exact_requested_google_material_symbols_for_each_state():
+    from urllib.parse import unquote
+    from src.status_icons import PATHS, STATUS_SYMBOLS, status_icon
+    required={
+        "Completado":"check_circle",
+        "Pendiente pedido":"note_stack",
+        "Material sin recibir":"package_2",
+        "Pendiente aprobación":"search",
+        "Parcialmente aprobadas":"clock_loader_10",
+        "SC anulada":"close",
+        "Pendiente conciliación":"gpp_maybe",
+    }
+    for state, glyph in required.items():
+        assert STATUS_SYMBOLS[state][0]==glyph
+        svg=unquote(status_icon(state))
+        assert f'<path d="{PATHS[glyph]}"/>' in svg
+        assert 'viewBox="-206 -1166 1372 1372"' in svg
+    assert STATUS_SYMBOLS["no_approved_coverage"][0]=="search"
