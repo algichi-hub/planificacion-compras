@@ -59,7 +59,7 @@ def test_styler_format_preserves_source_precision_dtype_and_order():
 
 def test_display_is_compact_without_mutating_receipt_numbers():
     receipt=pd.DataFrame([{
-        "Ped":"000123","posicion_pedido":"07",
+        "pedido":"000123","posicion_pedido":"07",
         "parte_recepcion":"000042",
         "fecha_recepcion":pd.Timestamp("2026-11-06"),
         "cantidad_entregada":Decimal("12.500000"),
@@ -74,7 +74,7 @@ def test_display_is_compact_without_mutating_receipt_numbers():
 
 def test_detail_quantity_fract_preserved():
     trace=pd.DataFrame([{
-        "Ped":"01","posicion_pedido":"1",
+        "pedido":"01","posicion_pedido":"1",
         "cantidad_pedida":Decimal("123.000010"),
         "parte_recepcion":None
     }])
