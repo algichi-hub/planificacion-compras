@@ -9,22 +9,24 @@ ROOT = Path(__file__).resolve().parents[1]
 ADMIN = {"is_logged_in": True, "email_verified": True, "email": "admin@example.com"}
 
 
-def test_manage_is_inline_and_legacy_sc_forms_are_gone():
-    app = (ROOT / "app.py").read_text(encoding="utf-8")
-    manage = app.split("with tab4:", 1)[1]
+def test_manage_is_aggrid_not_form_matrix():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    manage=app.split("with tab4:",1)[1]
+    assert "AgGrid(" in manage
+    assert 'DataReturnMode.CUSTOM' in manage
+    assert 'update_on=["cellValueChanged","cellClicked"]' in manage
+    assert 'rowHeight":32' in manage
+    assert 'headerHeight":32' in manage
+    assert 'grid-template-columns' not in manage
+    assert 'with st.container(key="manage_sc_grid"):' not in manage
+    assert 'st.text_input("SC",key=sc_key' not in manage
+    assert 'st.text_input("Descripción contextual",key=desc_key' not in manage
     assert 'st.button("Añadir nueva SC"' in manage
-    assert 'st.button("X",help="Borrar esta SC del grupo",key=f"manage_delete_' in manage
     assert '@st.dialog("Confirmar borrado")' in manage
-    assert '"Confirmar borrado",type="primary"' in manage
-    assert "on_change=_save_existing_item" in manage
-    assert "on_change=_save_new_item" in manage
+    assert '"Confirmar borrado",key=f"grid_confirm_' in manage
     assert 'write_bulk(admin_dsn,identity,admin_emails,"insert_item"' in manage
+    assert 'write_bulk(admin_dsn,identity,admin_emails,"edit_item"' in manage
     assert 'write_bulk(admin_dsn,identity,admin_emails,"remove_item"' in manage
-    assert '"Añadir o actualizar SC"' not in manage
-    assert '"Editar o retirar una SC"' not in manage
-    assert 'st.form(f"bulk_edit_{item_id}' not in manage
-    assert "if not sc_value or not desc_value:" in manage
-    assert 'st.session_state.pop("bulk_result", None)' in manage
     assert 'with st.expander("Modificar grupo"):' in manage
     assert 'with st.expander("Eliminar grupo"):' in manage
 
@@ -109,35 +111,62 @@ def test_group_sc_reporting_retains_read_only_and_selection():
     assert "format_sc_quantities(bulk_view.style).apply(" in group_view
 
 
-def test_manage_compact_grid_only_scoped_css():
-    app = (ROOT / "app.py").read_text(encoding="utf-8")
-    manage = app.split("with tab4:", 1)[1]
-    assert 'with st.container(key="manage_sc_grid"):' in manage
-    assert 'c_action,c_sc,c_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")' in manage
-    assert '.st-key-manage_sc_grid [data-testid="stVerticalBlock"]' in manage
-    assert 'gap: 1px !important;' in manage
-    assert 'height: 34px !important;' in manage
-    assert 'border-radius: 0 !important;' in manage
-    assert '[class*="st-key-manage_delete_"] button' in manage
-    assert 'background: #FEF2F2 !important;' in manage
-    # No global input overrides affecting Seguimiento SC or Group SC.
-    assert 'input {' not in app.split("with tab4:", 1)[0]
+def test_aggrid_layout_pin_and_delete_column():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    manage=app.split("with tab4:",1)[1]
+    assert 'b.textContent=\'X\'' in manage
+    assert 'border-radius:0' in manage
+    assert '"field":"delete"' in manage
+    assert '"pinned":"left"' in manage
+    assert '"editable":False' in manage
+    assert 'min(450,40+max(1,len(rows))*32)' in manage
+    assert '"theme="streamlit"' not in manage  # explicit kwarg below
+    assert 'theme="streamlit"' in app
+    assert 'enable_enterprise_modules=False' in manage
+    assert 'server_sync_strategy="server_wins"' in manage
+    assert 'key=f"manage_grid_{group_id_manage}_{st.session_state[revision_key]}"' in manage
 
 
-def test_delete_is_left_of_sc_and_rows_cannot_wrap():
-    app = (ROOT / "app.py").read_text(encoding="utf-8")
-    manage = app.split("with tab4:", 1)[1]
-    assert 'grid-template-columns: 38px minmax(100px, 2fr) minmax(140px, 5fr)' in manage
-    assert 'display: grid !important;' in manage
-    assert '[data-testid="stColumn"]' in manage
-    row = manage.split('c_action,c_sc,c_desc=st.columns(',1)[1].split(
-        'status=st.session_state.get(f"manage_status_',1)[0]
-    assert row.index('with c_action:') < row.index('with c_sc:') < row.index('with c_desc:')
-    assert 'st.button("X",help="Borrar esta SC del grupo"' in row
-    assert 'st.button("Borrar"' not in manage
-    draft = manage.split('d_action,d_sc,d_desc=st.columns(',1)[1].split(
-        'status=st.session_state.get(f"manage_new_status_',1)[0]
-    assert draft.index('with d_action:') < draft.index('with d_sc:') < draft.index('with d_desc:')
-    assert 'st.button("X",help="Descartar fila nueva"' in draft
-    assert '[data-baseweb="input"]' in manage
-    assert '[data-baseweb="base-input"]' in manage
+def test_aggrid_events_validate_and_preserve_text():
+    import pandas as pd
+    from src.manage_grid import parse_manage_event, valid_existing_edit, apply_draft_edit
+    items=pd.DataFrame([{"id":5,"sc_no":"000761452","context_description":"A"}])
+    parsed=parse_manage_event({"type":"edit","id":5,"field":"context_description","value":"B"})
+    assert valid_existing_edit(parsed,items)==("000761452","B",False)
+    parsed=parse_manage_event({"type":"edit","id":5,"field":"sc_no","value":"000761453"})
+    assert valid_existing_edit(parsed,items)==("000761453","A",False)
+    assert valid_existing_edit(parse_manage_event({
+        "type":"edit","id":5,"field":"sc_no","value":"000761452"}),items)[2] is True
+    draft={"sc_no":"","context_description":""}
+    draft,ready=apply_draft_edit(draft,parse_manage_event({
+        "type":"edit","id":-3,"field":"sc_no","value":"00001"}))
+    assert not ready and draft["sc_no"]=="00001"
+    draft,ready=apply_draft_edit(draft,parse_manage_event({
+        "type":"edit","id":-3,"field":"context_description","value":"Material"}))
+    assert ready and draft=={"sc_no":"00001","context_description":"Material"}
+    assert parse_manage_event({"type":"delete","id":5})=={"type":"delete","id":5}
+
+
+@pytest.mark.parametrize("event", [
+    None, {}, {"type":"sorting","id":1},
+    {"type":"edit","id":0,"field":"sc_no","value":"123"},
+    {"type":"edit","id":1,"field":"id","value":"2"},
+    {"type":"edit","id":1,"field":"sc_no","value":123},
+    {"type":"delete","id":"oops"},
+])
+def test_malformed_grid_events_are_ignored(event):
+    from src.manage_grid import parse_manage_event
+    assert parse_manage_event(event) is None
+
+
+def test_invalid_grid_edits_do_not_pass_validation():
+    import pandas as pd
+    from src.manage_grid import parse_manage_event, valid_existing_edit
+    items=pd.DataFrame([{"id":7,"sc_no":"00011","context_description":"A"}])
+    for field,value in [("sc_no","a11"),("context_description","")]:
+        with pytest.raises(ValueError):
+            valid_existing_edit(parse_manage_event(
+                {"type":"edit","id":7,"field":field,"value":value}),items)
+    with pytest.raises(ValueError):
+        valid_existing_edit(parse_manage_event(
+            {"type":"edit","id":999,"field":"sc_no","value":"1"}),items)
