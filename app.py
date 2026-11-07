@@ -141,7 +141,7 @@ with tab2:
                 column_config={
                     **{name: st.column_config.Column(width=None)
                        for name in ("Sol", "Ped", "Rec", "Apr")},
-                    " ": st.column_config.ImageColumn("", width="small",
+                    " ": st.column_config.ImageColumn("", width=38, pinned=True,
                         help="Estado operativo SC"),
                 },
                 on_select="rerun",selection_mode="single-row",
@@ -173,9 +173,7 @@ with tab2:
                         detail.style.apply(detail_row_style,axis=1,today=madrid_today,
                                            workflow_state=line.get("workflow_state")),
                         use_container_width=True,hide_index=True,
-                        column_config={" ": st.column_config.ImageColumn("",width="small",
-                                                         help="Estado operativo SC"),
-                                       "Campo": st.column_config.TextColumn(width="medium"),
+                        column_config={"Campo": st.column_config.TextColumn(width="medium"),
                                        "Valor": st.column_config.TextColumn(width="large")},
                         height=min(720,35*(len(detail)+1)+3),
                     )
