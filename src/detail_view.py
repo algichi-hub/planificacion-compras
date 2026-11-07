@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pandas as pd
+from src.planned_date_style import planned_date_style
 
 
 LABELS = {
@@ -96,31 +97,11 @@ def receptions_table(trace):
 
 
 def detail_row_style(row, today, workflow_state=None):
-    """Style planned dates only for unreceived material, using Madrid local day.
-
-    Past-due = red, 0..7 days = orange, 8..14 = yellow, >14 = green.
-    Planned date styling is text-only (bold, no background).
-    """
-    campo = row.get("Campo")
-    if campo == "Fecha planificada":
-        if workflow_state != "Material sin recibir":
-            return [""] * len(row)
-        value = row.get("Valor")
-        try:
-            planned = datetime.strptime(str(value), "%d/%m/%Y").date()
-        except (ValueError, TypeError):
-            return [""] * len(row)
-        days_remaining = (planned - today).days
-        if days_remaining < 0:
-            color = "#B91C1C"
-        elif days_remaining <= 7:
-            color = "#C2410C"
-        elif days_remaining <= 14:
-            color = "#A16207"
-        else:
-            color = "#15803D"
-        return [f"color: {color}; font-weight: bold"] * len(row)
-    return [""] * len(row)
+    """Color only the planned date, with the same thresholds as the SC overview."""
+    style = ""
+    if row.get("Campo") == "Fecha planificada":
+        style = planned_date_style(row.get("Valor"), today, workflow_state)
+    return [style] * len(row)
 
 
 def vertical_records(frame, title, labels=None):
