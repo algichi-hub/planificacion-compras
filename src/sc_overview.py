@@ -2,9 +2,9 @@
 
 Keep the source rows intact for position-based selection and database lookup.
 """
-from datetime import date, datetime
 import pandas as pd
 from src.status_icons import status_icon
+from src.planned_date_style import planned_date_style
 
 DISPLAY_COLUMNS = (
     " ", "Proyecto", "SC/Pos", "PO/Pos", "article", "description",
@@ -53,15 +53,10 @@ def overview_display(source):
 
 
 def overview_row_style(row, today):
-    """Keep row backgrounds native; emphasize only overdue unreceived dates."""
+    """Color only the planned-date text for unreceived materials, never row backgrounds."""
     styles = [""] * len(row)
-    planned = row.get("fecha_plan")
-    if row.get("estado") == "Material sin recibir" and isinstance(planned, str) and planned != "—":
-        try:
-            planned_date = datetime.strptime(planned, "%d/%m/%Y").date()
-        except ValueError:
-            planned_date = None
-        if planned_date is not None and planned_date < today:
-            idx = row.index.get_loc("fecha_plan")
-            styles[idx] = "color: #B91C1C; font-weight: bold"
+    if "fecha_plan" in row.index:
+        styles[row.index.get_loc("fecha_plan")] = planned_date_style(
+            row.get("fecha_plan"), today, row.get("estado")
+        )
     return styles
