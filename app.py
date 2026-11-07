@@ -8,7 +8,7 @@ import psycopg
 import streamlit as st
 from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
 from src.sc_overview import overview_display, overview_row_style
-from src.group_sc_view import group_overview
+from src.group_sc_view import group_overview, group_overview_source
 from src.quantity_format import format_sc_quantities
 from src.bulk_sc import is_bulk_admin, write_bulk
 
@@ -90,6 +90,112 @@ def overview_column_config():
             help="Estado operativo SC"),
     }
 
+def render_sc_detail(line, sid):
+    """Read-only SC detail shared by individual and grouped views."""
+    st.subheader(f"Detalle SC {line['sc_no']} / posición {line['sc_pos']}")
+    trace=query("""SELECT l.po_no AS pedido,l.po_pos AS posicion_pedido,
+           p.article AS articulo_pedido,p.vendor AS proveedor,
+           p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
+           r.receipt_no AS parte_recepcion,r.receipt_date AS fecha_recepcion,
+           r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada
+           FROM core.sc_po_links l
+           JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
+               (l.snapshot_id,l.company,l.po_no,l.po_pos)
+           LEFT JOIN core.receipts r ON (r.snapshot_id,r.po_no,r.po_pos)=
+               (l.snapshot_id,l.po_no,l.po_pos)
+           WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
+           ORDER BY l.po_no,l.po_pos,r.receipt_date NULLS LAST,r.receipt_no""",
+                (sid,line["company"],line["sc_no"],line["sc_pos"]))
+    detail=transpose_trace(trace, line.get('workflow_state', line.get('coverage_state')))
+    madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
+    if trace.empty:
+        st.caption("Esta posición SC no tiene pedidos vinculados.")
+    if not detail.empty:
+        st.dataframe(
+            detail.style.apply(detail_row_style,axis=1,today=madrid_today,
+                               workflow_state=line.get("workflow_state")),
+            use_container_width=True,hide_index=True,
+            column_config={"Campo": st.column_config.TextColumn(width="medium"),
+                           "Valor": st.column_config.TextColumn(width="large")},
+            height=min(720,35*(len(detail)+1)+3),
+        )
+        st.caption("Solo en estado «Material sin recibir»: fecha planificada vencida en rojo; hasta 7 días naranja; 8–14 días amarillo; más de 14 días verde. Texto en negrita, sin fondo.")
+        st.download_button(
+            "Exportar detalle CSV",
+            detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
+            file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
+            mime="text/csv",
+        )
+    st.markdown("#### Recepciones asociadas a esta posición SC")
+    receptions=receptions_table(trace)
+    if receptions.empty:
+        st.caption("Sin recepciones registradas para los pedidos vinculados.")
+    else:
+        st.dataframe(receptions,width="content",hide_index=True,
+                     column_config={"Campo": st.column_config.TextColumn(),
+                                    "Valor": st.column_config.TextColumn()},
+                     height=min(720,35*(len(receptions)+1)+3))
+        st.caption("Recepción: número (fecha, Re: cantidad recibida en admisión de entrada, Ap: cantidad aprobada tras el control de calidad). La diferencia Rec − Apr corresponde a unidades que todavía no constan como aprobadas; no implica necesariamente rechazo.")
+        st.download_button(
+            "Exportar recepciones CSV",
+            receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
+            file_name=f"recepciones_SC_{line['sc_no']}_{line['sc_pos']}.csv",
+            mime="text/csv",
+        )
+    # REAC is keyed to the selected SC position; it is not an operational state.
+    st.markdown("#### REAC asociados a esta posición SC")
+    reac_detail=query("""SELECT reac_no AS referencia_reac,
+           reac_article AS articulo_reac,po_no AS pedido,
+           po_pos AS posicion_pedido
+           FROM core.reac_refs
+           WHERE snapshot_id=%s AND company=%s AND sc_no=%s AND sc_pos=%s
+           ORDER BY reac_no,po_no,po_pos""",
+        (sid,line["company"],line["sc_no"],line["sc_pos"]))
+    if reac_detail.empty:
+        st.caption("Sin referencias REAC para esta posición.")
+    else:
+        reac_vertical=vertical_records(reac_detail,"REAC",{
+            "referencia_reac":"Referencia REAC","articulo_reac":"Artículo REAC",
+            "pedido":"Pedido","posicion_pedido":"Posición pedido"})
+        st.dataframe(reac_vertical,use_container_width=True,hide_index=True)
+        st.caption("REAC documental: no se infiere cantidad rechazada ni estado de aprobación.")
+    
+    # INC has no company/SC identifier: link conservatively by PO/position
+    # and disclose the article match instead of asserting exact SC ownership.
+    st.markdown("#### Incidencias asociadas a los pedidos de esta posición SC")
+    inc_detail=query("""SELECT DISTINCT i.source_line AS fila_origen_inc,
+           l.po_no AS pedido,l.po_pos AS posicion_pedido,
+           i.record_no AS numero_incidencia,i.sequence_no AS secuencia,
+           i.article AS articulo_inc,p.article AS articulo_pedido,
+           CASE WHEN i.article=p.article THEN 'Coincide'
+                ELSE 'Revisar' END AS coincidencia_articulo,
+           i.category AS categoria,i.resolved AS resuelta,
+           i.detail AS observaciones
+           FROM core.sc_po_links l
+           JOIN core.po_lines p ON
+             (p.snapshot_id,p.company,p.po_no,p.po_pos)=
+             (l.snapshot_id,l.company,l.po_no,l.po_pos)
+           JOIN core.incidents i ON
+             (i.snapshot_id,i.po_no,i.po_pos)=(l.snapshot_id,l.po_no,l.po_pos)
+           WHERE l.snapshot_id=%s AND l.company=%s
+             AND l.sc_no=%s AND l.sc_pos=%s
+           ORDER BY l.po_no,l.po_pos,i.source_line,i.record_no""",
+        (sid,line["company"],line["sc_no"],line["sc_pos"]))
+    if inc_detail.empty:
+        st.caption("Sin incidencias vinculables a sus posiciones de pedido.")
+    else:
+        inc_vertical=vertical_records(inc_detail,"INC",{
+            "fila_origen_inc":"Fila original INC","pedido":"Pedido",
+            "posicion_pedido":"Posición pedido",
+            "numero_incidencia":"Número de incidencia",
+            "secuencia":"Secuencia","articulo_inc":"Artículo INC",
+            "articulo_pedido":"Artículo pedido",
+            "coincidencia_articulo":"Coincidencia de artículo",
+            "categoria":"Categoría","resuelta":"Resuelta",
+            "observaciones":"Observaciones"})
+        st.dataframe(inc_vertical,use_container_width=True,hide_index=True)
+        st.caption("INC vinculada por pedido y posición; el fichero INC carece de compañía/SC. Revisar las coincidencias de artículo y cualquier vinculación compartida.")
+
 with tab1:
     if workflow_ready:
         states=query("SELECT workflow_state,count(*) AS n FROM planning.sc_workflow_status WHERE "+where+" GROUP BY workflow_state ORDER BY n DESC",tuple(params))
@@ -157,109 +263,8 @@ with tab2:
             selected_rows=event.selection.rows
             if selected_rows:
                 line=overview.iloc[selected_rows[0]]
-                st.subheader(f"Detalle SC {line['sc_no']} / posición {line['sc_pos']}")
-                trace=query("""SELECT l.po_no AS pedido,l.po_pos AS posicion_pedido,
-                       p.article AS articulo_pedido,p.vendor AS proveedor,
-                       p.ordered_qty AS cantidad_pedida,p.planned_date AS fecha_planificada,
-                       r.receipt_no AS parte_recepcion,r.receipt_date AS fecha_recepcion,
-                       r.delivered_qty AS cantidad_entregada,r.approved_qty AS cantidad_aprobada
-                       FROM core.sc_po_links l
-                       JOIN core.po_lines p ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
-                           (l.snapshot_id,l.company,l.po_no,l.po_pos)
-                       LEFT JOIN core.receipts r ON (r.snapshot_id,r.po_no,r.po_pos)=
-                           (l.snapshot_id,l.po_no,l.po_pos)
-                       WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
-                       ORDER BY l.po_no,l.po_pos,r.receipt_date NULLS LAST,r.receipt_no""",
-                            (sid,line["company"],line["sc_no"],line["sc_pos"]))
-                detail=transpose_trace(trace, line.get('workflow_state', line.get('coverage_state')))
-                madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
-                if trace.empty:
-                    st.caption("Esta posición SC no tiene pedidos vinculados.")
-                if not detail.empty:
-                    st.dataframe(
-                        detail.style.apply(detail_row_style,axis=1,today=madrid_today,
-                                           workflow_state=line.get("workflow_state")),
-                        use_container_width=True,hide_index=True,
-                        column_config={"Campo": st.column_config.TextColumn(width="medium"),
-                                       "Valor": st.column_config.TextColumn(width="large")},
-                        height=min(720,35*(len(detail)+1)+3),
-                    )
-                    st.caption("Solo en estado «Material sin recibir»: fecha planificada vencida en rojo; hasta 7 días naranja; 8–14 días amarillo; más de 14 días verde. Texto en negrita, sin fondo.")
-                    st.download_button(
-                        "Exportar detalle CSV",
-                        detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
-                        file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-                        mime="text/csv",
-                    )
-                st.markdown("#### Recepciones asociadas a esta posición SC")
-                receptions=receptions_table(trace)
-                if receptions.empty:
-                    st.caption("Sin recepciones registradas para los pedidos vinculados.")
-                else:
-                    st.dataframe(receptions,width="content",hide_index=True,
-                                 column_config={"Campo": st.column_config.TextColumn(),
-                                                "Valor": st.column_config.TextColumn()},
-                                 height=min(720,35*(len(receptions)+1)+3))
-                    st.caption("Recepción: número (fecha, Re: cantidad recibida en admisión de entrada, Ap: cantidad aprobada tras el control de calidad). La diferencia Rec − Apr corresponde a unidades que todavía no constan como aprobadas; no implica necesariamente rechazo.")
-                    st.download_button(
-                        "Exportar recepciones CSV",
-                        receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
-                        file_name=f"recepciones_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-                        mime="text/csv",
-                    )
-                # REAC is keyed to the selected SC position; it is not an operational state.
-                st.markdown("#### REAC asociados a esta posición SC")
-                reac_detail=query("""SELECT reac_no AS referencia_reac,
-                       reac_article AS articulo_reac,po_no AS pedido,
-                       po_pos AS posicion_pedido
-                       FROM core.reac_refs
-                       WHERE snapshot_id=%s AND company=%s AND sc_no=%s AND sc_pos=%s
-                       ORDER BY reac_no,po_no,po_pos""",
-                    (sid,line["company"],line["sc_no"],line["sc_pos"]))
-                if reac_detail.empty:
-                    st.caption("Sin referencias REAC para esta posición.")
-                else:
-                    reac_vertical=vertical_records(reac_detail,"REAC",{
-                        "referencia_reac":"Referencia REAC","articulo_reac":"Artículo REAC",
-                        "pedido":"Pedido","posicion_pedido":"Posición pedido"})
-                    st.dataframe(reac_vertical,use_container_width=True,hide_index=True)
-                    st.caption("REAC documental: no se infiere cantidad rechazada ni estado de aprobación.")
+                render_sc_detail(line, sid)
 
-                # INC has no company/SC identifier: link conservatively by PO/position
-                # and disclose the article match instead of asserting exact SC ownership.
-                st.markdown("#### Incidencias asociadas a los pedidos de esta posición SC")
-                inc_detail=query("""SELECT DISTINCT i.source_line AS fila_origen_inc,
-                       l.po_no AS pedido,l.po_pos AS posicion_pedido,
-                       i.record_no AS numero_incidencia,i.sequence_no AS secuencia,
-                       i.article AS articulo_inc,p.article AS articulo_pedido,
-                       CASE WHEN i.article=p.article THEN 'Coincide'
-                            ELSE 'Revisar' END AS coincidencia_articulo,
-                       i.category AS categoria,i.resolved AS resuelta,
-                       i.detail AS observaciones
-                       FROM core.sc_po_links l
-                       JOIN core.po_lines p ON
-                         (p.snapshot_id,p.company,p.po_no,p.po_pos)=
-                         (l.snapshot_id,l.company,l.po_no,l.po_pos)
-                       JOIN core.incidents i ON
-                         (i.snapshot_id,i.po_no,i.po_pos)=(l.snapshot_id,l.po_no,l.po_pos)
-                       WHERE l.snapshot_id=%s AND l.company=%s
-                         AND l.sc_no=%s AND l.sc_pos=%s
-                       ORDER BY l.po_no,l.po_pos,i.source_line,i.record_no""",
-                    (sid,line["company"],line["sc_no"],line["sc_pos"]))
-                if inc_detail.empty:
-                    st.caption("Sin incidencias vinculables a sus posiciones de pedido.")
-                else:
-                    inc_vertical=vertical_records(inc_detail,"INC",{
-                        "fila_origen_inc":"Fila original INC","pedido":"Pedido",
-                        "posicion_pedido":"Posición pedido",
-                        "numero_incidencia":"Número de incidencia",
-                        "secuencia":"Secuencia","articulo_inc":"Artículo INC",
-                        "articulo_pedido":"Artículo pedido",
-                        "coincidencia_articulo":"Coincidencia de artículo",
-                        "categoria":"Categoría","resuelta":"Resuelta",
-                        "observaciones":"Observaciones"})
-                    st.dataframe(inc_vertical,use_container_width=True,hide_index=True)
-                    st.caption("INC vinculada por pedido y posición; el fichero INC carece de compañía/SC. Revisar las coincidencias de artículo y cualquier vinculación compartida.")
 # Shared, read-only group catalogue. Admin privileges are evaluated only in Manage.
 try:
     groups=query("SELECT id,name,description FROM planning.bulk_sc_groups ORDER BY name")
@@ -307,19 +312,30 @@ with tab3:
                                        THEN btrim(s.sc_pos)::numeric END NULLS LAST,
                                    s.sc_pos""",(sid,numbers))
                 grouped=group_overview(items,group_status)
-                st.session_state["bulk_result"]=(sid,group_id,grouped)
+                group_source=group_overview_source(items,group_status)
+                st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)
             stored=st.session_state.get("bulk_result")
             if stored and stored[0]==sid and stored[1]==group_id:
                 bulk_view=stored[2]
                 st.caption(f"{len(items)} SC · {len(bulk_view)} posiciones o referencias")
                 madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
-                st.dataframe(
+                event_group=st.dataframe(
                     format_sc_quantities(bulk_view.style).apply(
                         overview_row_style,axis=1,today=madrid_today
                     ),
                     hide_index=True,use_container_width=True,
                     column_config=overview_column_config(),
+                    on_select="rerun",selection_mode="single-row",
+                    key=f"group_sc_overview_{sid}_{group_id}",
                 )
+                if event_group.selection.rows:
+                    selected_index=event_group.selection.rows[0]
+                    group_source=stored[3]
+                    line=group_source.iloc[selected_index]
+                    if pd.isna(line.get("company")) or pd.isna(line.get("sc_pos")):
+                        st.info("Esta SC no figura en el snapshot seleccionado; no hay detalle que consultar.")
+                    else:
+                        render_sc_detail(line, sid)
 
 with tab4:
     st.subheader("Manage")
