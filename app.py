@@ -8,6 +8,7 @@ import psycopg
 import streamlit as st
 from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
 from src.sc_overview import overview_display, overview_row_style
+from src.quantity_format import format_sc_quantities
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -133,7 +134,7 @@ with tab2:
             visible_overview=overview_display(overview)
             madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
             event=st.dataframe(
-                visible_overview.style.apply(
+                format_sc_quantities(visible_overview.style).apply(
                     overview_row_style,axis=1,today=madrid_today
                 ),use_container_width=True,hide_index=True,
                 on_select="rerun",selection_mode="single-row",
