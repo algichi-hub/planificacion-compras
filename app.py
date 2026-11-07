@@ -394,12 +394,37 @@ with tab4:
                        "Las altas se guardan cuando ambos campos están completos.")
             st.markdown("""
                 <style>
-                [class*="st-key-manage_delete_"] button {
+                /* Scoped exclusively to the inline Manage SC grid. */
+                .st-key-manage_sc_grid [data-testid="stVerticalBlock"] {
+                    gap: 1px !important;
+                }
+                .st-key-manage_sc_grid [data-testid="stHorizontalBlock"] {
+                    gap: 1px !important;
+                    align-items: center !important;
+                }
+                .st-key-manage_sc_grid [data-testid="stTextInput"] {
+                    margin: 0 !important;
+                }
+                .st-key-manage_sc_grid [data-testid="stTextInput"] input {
+                    min-height: 34px !important;
+                    height: 34px !important;
+                    padding: 4px 8px !important;
+                    border-radius: 0 !important;
+                    font-size: 0.9rem !important;
+                }
+                .st-key-manage_sc_grid [class*="st-key-manage_delete_"] button,
+                .st-key-manage_sc_grid [class*="st-key-manage_cancel_draft_"] button {
+                    min-height: 34px !important;
+                    height: 34px !important;
+                    padding: 4px 6px !important;
+                    border-radius: 0 !important;
+                }
+                .st-key-manage_sc_grid [class*="st-key-manage_delete_"] button {
                     color: #B91C1C !important;
                     border: 1px solid #B91C1C !important;
                     background: transparent !important;
                 }
-                [class*="st-key-manage_delete_"] button:hover {
+                .st-key-manage_sc_grid [class*="st-key-manage_delete_"] button:hover {
                     background: #FEF2F2 !important;
                 }
                 </style>
@@ -483,60 +508,61 @@ with tab4:
                             st.rerun()
 
             st.markdown("**SC del grupo**")
-            h_sc,h_desc,h_action=st.columns([2,5,1.35],vertical_alignment="center")
-            h_sc.caption("SC")
-            h_desc.caption("Descripción contextual")
-            h_action.caption("Acción")
-            for item in items_manage.itertuples(index=False):
-                item_id=int(item.id)
-                sc_before=str(item.sc_no)
-                desc_before=str(item.context_description)
-                sc_key=f"manage_sc_{group_id_manage}_{item_id}"
-                desc_key=f"manage_desc_{group_id_manage}_{item_id}"
-                st.session_state.setdefault(sc_key,sc_before)
-                st.session_state.setdefault(desc_key,desc_before)
-                c_sc,c_desc,c_action=st.columns([2,5,1.35],vertical_alignment="bottom")
-                with c_sc:
-                    st.text_input("SC",key=sc_key,max_chars=40,
-                                  label_visibility="collapsed",
-                                  on_change=_save_existing_item,
-                                  args=(item_id,sc_before,desc_before))
-                with c_desc:
-                    st.text_input("Descripción contextual",key=desc_key,max_chars=500,
-                                  label_visibility="collapsed",
-                                  on_change=_save_existing_item,
-                                  args=(item_id,sc_before,desc_before))
-                with c_action:
-                    if st.button("Borrar",key=f"manage_delete_{group_id_manage}_{item_id}",
-                                 use_container_width=True):
-                        _confirm_remove_item(item_id,sc_before)
-                status=st.session_state.get(f"manage_status_{group_id_manage}_{item_id}")
-                if status and status != "Guardado":
-                    st.error(f"SC {sc_before}: {status}")
-                elif status:
-                    st.caption(f"SC {sc_before}: ✓ Guardado")
-            for draft_id in list(st.session_state[draft_key]):
-                sc_key=f"manage_new_sc_{group_id_manage}_{draft_id}"
-                desc_key=f"manage_new_desc_{group_id_manage}_{draft_id}"
-                d_sc,d_desc,d_action=st.columns([2,5,1.35],vertical_alignment="bottom")
-                with d_sc:
-                    st.text_input("Nueva SC",key=sc_key,max_chars=40,
-                                  label_visibility="collapsed",placeholder="Número SC",
-                                  on_change=_save_new_item,args=(draft_id,))
-                with d_desc:
-                    st.text_input("Nueva descripción",key=desc_key,max_chars=500,
-                                  label_visibility="collapsed",placeholder="Descripción contextual",
-                                  on_change=_save_new_item,args=(draft_id,))
-                with d_action:
-                    if st.button("Cancelar",key=f"manage_cancel_draft_{group_id_manage}_{draft_id}",
-                                 use_container_width=True):
-                        st.session_state[draft_key].remove(draft_id)
-                        st.rerun()
-                status=st.session_state.get(f"manage_new_status_{group_id_manage}_{draft_id}")
-                if status:
-                    st.error(f"Nueva SC: {status}")
-            st.button("Añadir nueva SC",icon=":material/add:",on_click=_add_blank_sc,
-                      key=f"manage_add_row_{group_id_manage}")
+            with st.container(key="manage_sc_grid"):
+                h_sc,h_desc,h_action=st.columns([2,5,1.35],gap=None,vertical_alignment="center")
+                h_sc.caption("SC")
+                h_desc.caption("Descripción contextual")
+                h_action.caption("Acción")
+                for item in items_manage.itertuples(index=False):
+                    item_id=int(item.id)
+                    sc_before=str(item.sc_no)
+                    desc_before=str(item.context_description)
+                    sc_key=f"manage_sc_{group_id_manage}_{item_id}"
+                    desc_key=f"manage_desc_{group_id_manage}_{item_id}"
+                    st.session_state.setdefault(sc_key,sc_before)
+                    st.session_state.setdefault(desc_key,desc_before)
+                    c_sc,c_desc,c_action=st.columns([2,5,1.35],gap=None,vertical_alignment="center")
+                    with c_sc:
+                        st.text_input("SC",key=sc_key,max_chars=40,
+                                      label_visibility="collapsed",
+                                      on_change=_save_existing_item,
+                                      args=(item_id,sc_before,desc_before))
+                    with c_desc:
+                        st.text_input("Descripción contextual",key=desc_key,max_chars=500,
+                                      label_visibility="collapsed",
+                                      on_change=_save_existing_item,
+                                      args=(item_id,sc_before,desc_before))
+                    with c_action:
+                        if st.button("Borrar",key=f"manage_delete_{group_id_manage}_{item_id}",
+                                     use_container_width=True):
+                            _confirm_remove_item(item_id,sc_before)
+                    status=st.session_state.get(f"manage_status_{group_id_manage}_{item_id}")
+                    if status and status != "Guardado":
+                        st.error(f"SC {sc_before}: {status}")
+                    elif status:
+                        st.caption(f"SC {sc_before}: ✓ Guardado")
+                for draft_id in list(st.session_state[draft_key]):
+                    sc_key=f"manage_new_sc_{group_id_manage}_{draft_id}"
+                    desc_key=f"manage_new_desc_{group_id_manage}_{draft_id}"
+                    d_sc,d_desc,d_action=st.columns([2,5,1.35],gap=None,vertical_alignment="center")
+                    with d_sc:
+                        st.text_input("Nueva SC",key=sc_key,max_chars=40,
+                                      label_visibility="collapsed",placeholder="Número SC",
+                                      on_change=_save_new_item,args=(draft_id,))
+                    with d_desc:
+                        st.text_input("Nueva descripción",key=desc_key,max_chars=500,
+                                      label_visibility="collapsed",placeholder="Descripción contextual",
+                                      on_change=_save_new_item,args=(draft_id,))
+                    with d_action:
+                        if st.button("Cancelar",key=f"manage_cancel_draft_{group_id_manage}_{draft_id}",
+                                     use_container_width=True):
+                            st.session_state[draft_key].remove(draft_id)
+                            st.rerun()
+                    status=st.session_state.get(f"manage_new_status_{group_id_manage}_{draft_id}")
+                    if status:
+                        st.error(f"Nueva SC: {status}")
+                st.button("Añadir nueva SC",icon=":material/add:",on_click=_add_blank_sc,
+                          key=f"manage_add_row_{group_id_manage}")
 
             with st.expander("Modificar grupo"):
                 with st.form(f"bulk_edit_group_{group_id_manage}"):
