@@ -197,7 +197,7 @@ def test_main_sc_table_retains_original_selection_and_uses_new_display():
 def test_sc_detail_native_dataframe_has_no_icon_column():
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
-    details=app.split("detail=transpose_trace(",1)[1].split("st.markdown(\"#### Recepciones",1)[0]
+    details=app.split("def render_sc_detail(line, sid, context):",1)[1].split("st.markdown(\"#### Recepciones",1)[0]
     assert '"Campo": st.column_config.TextColumn' in details
     assert '"Valor": st.column_config.TextColumn' in details
     assert 'ImageColumn' not in details
