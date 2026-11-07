@@ -23,7 +23,9 @@ def test_exact_columns_in_requested_order_and_same_row_index():
     ],index=[11,16])
     view=overview_display(source)
     assert tuple(view.columns)==DISPLAY_COLUMNS
-    assert DISPLAY_COLUMNS[6:10] == ("Sol","Ped","Rec","Apr")
+    assert DISPLAY_COLUMNS[7:11] == ("Sol","Ped","Rec","Apr")
+    assert DISPLAY_COLUMNS[0] == " "
+    assert view.loc[11," "].startswith("data:image/svg+xml;utf8,")
     assert list(view.index)==[11,16]
     assert view["SC/Pos"].tolist()==["00071/5","00071/20"]
     assert view["PO/Pos"].tolist()==["00321/8, 00322/1","—"]
@@ -33,7 +35,7 @@ def test_exact_columns_in_requested_order_and_same_row_index():
     assert all(col not in view for col in ("company","coverage_pct","workflow_issue"))
 
 
-def test_styles_pastel_rows_and_overdue_date_in_red_bold():
+def test_styles_have_no_backgrounds_and_overdue_date_in_red_bold():
     today=date(2026,11,7)
     view=pd.DataFrame([
         {"estado":"Material sin recibir","fecha_plan":"06/11/2026","Proyecto":"ABC"},
@@ -42,14 +44,14 @@ def test_styles_pastel_rows_and_overdue_date_in_red_bold():
     ])
     first=overview_row_style(view.iloc[0],today)
     assert len(first)==3
-    assert "#FFEDD5" in first[0] and "#FFEDD5" in first[2]
+    assert all("background" not in x for x in first)
     assert "#B91C1C" in first[1] and "font-weight: bold" in first[1]
-    assert "#FFEDD5" in first[1]
+    assert all("background" not in x for x in first)
     second=overview_row_style(view.iloc[1],today)
     assert "font-weight" not in second[1]
-    assert "#DCFCE7" in second[1]
+    assert all(x == "" for x in second)
     third=overview_row_style(view.iloc[2],today)
-    assert "#FEE2E2" in third[1] and "font-weight" not in third[1]
+    assert all(x == "" for x in third)
 
 
 def test_overdue_plan_is_unhighlighted_for_every_other_state():
@@ -88,3 +90,15 @@ def test_legacy_coverage_fallback_preserves_exact_columns():
     view=overview_display(source)
     assert tuple(view.columns)==DISPLAY_COLUMNS
     assert view.iloc[0]["estado"]=="no_approved_coverage"
+
+
+def test_symbol_icons_are_distinct_and_unknowns_are_safe():
+    from src.status_icons import status_icon
+    states=("Completado","Pendiente pedido","Material sin recibir",
+            "Pendiente aprobación","Parcialmente aprobadas","SC anulada",
+            "Pendiente conciliación")
+    icons=[status_icon(s) for s in states]
+    assert len(set(icons))==len(states)
+    assert all(icon.startswith("data:image/svg+xml;utf8,") for icon in icons)
+    assert all("background" not in icon for icon in icons)
+    assert status_icon("not a known state") is None
