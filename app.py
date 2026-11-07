@@ -433,13 +433,15 @@ with tab4:
                 rows.loc[len(rows)]=[draft_id,draft["sc_no"],draft["context_description"]]
             rows.insert(0,"delete","X")
 
+            # AG Grid's React wrapper must receive a string, not an HTMLButtonElement.
+            # Event handling stays on cellClicked (the click bubbles from the button).
             delete_renderer=JsCode("""
                 function(params) {
-                    const b=document.createElement('button');
-                    b.type='button'; b.textContent='X';
-                    b.title=params.data.id < 0 ? 'Descartar nueva fila' : 'Eliminar SC';
-                    b.style.cssText='color:#B91C1C;background:transparent;border:1px solid #B91C1C;border-radius:0;padding:0;width:25px;height:25px;cursor:pointer;';
-                    return b;
+                    const title = params.data.id < 0 ? 'Descartar nueva fila' : 'Eliminar SC';
+                    return '<button type="button" title="' + title + '" ' +
+                           'style="color:#B91C1C;background:transparent;' +
+                           'border:1px solid #B91C1C;border-radius:0;' +
+                           'padding:0;width:25px;height:25px;cursor:pointer">X</button>';
                 }
             """)
             collect_event=JsCode("""
