@@ -111,3 +111,14 @@ def test_material_and_approval_icons_use_requested_orange_and_ochre():
     ochre=unquote(status_icon("Pendiente aprobación"))
     assert 'fill="#EA580C"' in orange
     assert 'fill="#CA8A04"' in ochre
+
+
+def test_status_icons_are_70_percent_and_native_column_is_pinned():
+    from urllib.parse import unquote
+    from pathlib import Path
+    from src.status_icons import status_icon
+    svg=unquote(status_icon("Completado"))
+    assert 'width="17" height="17"' in svg
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    assert 'ImageColumn("", width=38, pinned=True' in app
+    assert 'selection_mode="single-row"' in app
