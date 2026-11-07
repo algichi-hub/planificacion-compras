@@ -36,8 +36,10 @@ def test_vertical_trace_groups_two_receipts_and_order_without_receipt():
          "cantidad_aprobada":None,"estado_recepcion":None,"estado_vinculo":"verified"},
     ])
     view=transpose_trace(original,"Pendiente aprobación")
-    assert list(view.columns)==["Campo","Valor"]
-    assert view.iloc[0].to_dict()=={"Campo":"Estado SC","Valor":"Pendiente aprobación"}
+    assert list(view.columns)==[" ","Campo","Valor"]
+    assert view.iloc[0]["Campo"]==""
+    assert view.iloc[0]["Valor"]=="Pendiente aprobación"
+    assert view.iloc[0][" "].startswith("data:image/svg+xml;utf8,")
     assert view.loc[view.Campo=="Pedido/pos","Valor"].tolist()==["761258/1","761258/2"]
     assert view.loc[view.Campo=="Cantidad pedida","Valor"].tolist()==["4","24"]
     receptions=receptions_table(original)
@@ -80,13 +82,14 @@ def test_no_reception_yields_only_po_fields():
                          "cantidad_aprobada":None,"cantidad_entregada":None}])
     view=transpose_trace(frame,"Material sin recibir")
     assert view.iloc[0]["Valor"]=="Material sin recibir"
+    assert view.iloc[0]["Campo"]==""
     assert not view.Campo.str.startswith("Recepción").any()
     assert receptions_table(frame).empty
 
 
 def test_empty_trace_is_two_column_dataframe():
     result=transpose_trace(pd.DataFrame(columns=["pedido","parte_recepcion"]))
-    assert list(result.columns)==["Campo","Valor"]
+    assert list(result.columns)==[" ","Campo","Valor"]
     assert result.empty
 
 
@@ -105,13 +108,16 @@ def test_vertical_supplementary_records_preserve_each_incident():
     assert view.loc[view.Campo=="Categoria","Valor"].tolist()==["Falta Documentación","Pendiente Aprobación"]
 
 
-def test_detail_state_uses_same_pastel_as_sc_general():
-    from src.sc_row_styles import STATE_COLORS
-    for state, color in STATE_COLORS.items():
-        row=pd.Series({"Campo":"Estado SC","Valor":state})
-        result=detail_row_style(row,date(2026,11,6))
-        assert len(result)==2
-        assert all(f"background-color: {color}" in x for x in result)
+def test_detail_status_row_is_unlabeled_and_uncolored():
+    from src.status_icons import STATUS_SYMBOLS
+    for state in STATUS_SYMBOLS:
+        view=transpose_trace(pd.DataFrame(columns=["pedido","parte_recepcion"]), state)
+        assert list(view.columns)==[" ","Campo","Valor"]
+        assert view.iloc[0]["Campo"]==""
+        assert view.iloc[0]["Valor"]==state
+        assert view.iloc[0][" "].startswith("data:image/svg+xml;utf8,")
+        style=detail_row_style(view.iloc[0],date(2026,11,6),state)
+        assert style==["","",""]
 
 
 def test_planned_date_text_only_semantic_colors_on_boundaries():
