@@ -5,7 +5,6 @@ from decimal import Decimal
 
 import pandas as pd
 from src.planned_date_style import planned_date_style
-from src.planned_date_style import planned_date_style
 
 
 LABELS = {
