@@ -4,10 +4,10 @@ Keep the source rows intact for position-based selection and database lookup.
 """
 from datetime import date, datetime
 import pandas as pd
-from src.sc_row_styles import STATE_COLORS
+from src.status_icons import status_icon
 
 DISPLAY_COLUMNS = (
-    "Proyecto", "SC/Pos", "PO/Pos", "article", "description",
+    " ", "Proyecto", "SC/Pos", "PO/Pos", "article", "description",
     "fecha_plan", "Sol", "Ped", "Rec", "Apr", "estado",
 )
 
@@ -23,6 +23,8 @@ def overview_display(source):
     if source.empty:
         return pd.DataFrame(columns=list(DISPLAY_COLUMNS))
     result = pd.DataFrame(index=source.index)
+    result[" "] = (source["workflow_state"] if "workflow_state" in source.columns
+                   else source["coverage_state"]).map(status_icon)
     result["Proyecto"] = source["project"]
     result["SC/Pos"] = [
         _join_id(no, pos) for no, pos in zip(source["sc_no"], source["sc_pos"])
@@ -51,12 +53,8 @@ def overview_display(source):
 
 
 def overview_row_style(row, today):
-    """Pastel state for every row; red overdue date only for unreceived material."""
-    background = STATE_COLORS.get(row.get("estado"))
-    styles = [
-        f"background-color: {background}; color: #111827"
-        if background else ""
-    ] * len(row)
+    """Keep row backgrounds native; emphasize only overdue unreceived dates."""
+    styles = [""] * len(row)
     planned = row.get("fecha_plan")
     if row.get("estado") == "Material sin recibir" and isinstance(planned, str) and planned != "—":
         try:
@@ -65,8 +63,5 @@ def overview_row_style(row, today):
             planned_date = None
         if planned_date is not None and planned_date < today:
             idx = row.index.get_loc("fecha_plan")
-            styles[idx] = (
-                f"{styles[idx]}; color: #B91C1C; font-weight: bold"
-                if styles[idx] else "color: #B91C1C; font-weight: bold"
-            )
+            styles[idx] = "color: #B91C1C; font-weight: bold"
     return styles
