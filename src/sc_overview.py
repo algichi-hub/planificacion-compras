@@ -8,7 +8,7 @@ from src.sc_row_styles import STATE_COLORS
 
 DISPLAY_COLUMNS = (
     "Proyecto", "SC/Pos", "PO/Pos", "article", "description",
-    "fecha_plan", "solicitado", "pedido", "recibido", "aprobado", "estado",
+    "fecha_plan", "Sol", "Ped", "Rec", "Apr", "estado",
 )
 
 
@@ -36,10 +36,10 @@ def overview_display(source):
         else "—"
     )
     for display, raw in (
-        ("solicitado", "requested_qty"),
-        ("pedido", "ordered_qty"),
-        ("recibido", "received_qty"),
-        ("aprobado", "approved_qty"),
+        ("Sol", "requested_qty"),
+        ("Ped", "ordered_qty"),
+        ("Rec", "received_qty"),
+        ("Apr", "approved_qty"),
     ):
         result[display] = source[raw]
     result["estado"] = (
