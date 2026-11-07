@@ -44,9 +44,28 @@ def write_bulk(admin_dsn, user, allowed_emails, operation, *, group_id=None,
         raise RuntimeError("No se ha configurado BULK_ADMIN_DATABASE_URL.")
     if operation == "create_group":
         name = normalize_label(name, "Nombre", 160)
+        description = str(description or "").strip()
+        if len(description) > 500:
+            raise ValueError("Descripción: máximo 500 caracteres.")
         statement, args = (
-            "INSERT INTO planning.bulk_sc_groups (name) VALUES (%s) RETURNING id",
-            (name,),
+            "INSERT INTO planning.bulk_sc_groups (name,description) VALUES (%s,%s) RETURNING id",
+            (name, description),
+        )
+    elif operation == "edit_group":
+        name = normalize_label(name, "Nombre", 160)
+        description = str(description or "").strip()
+        if len(description) > 500:
+            raise ValueError("Descripción: máximo 500 caracteres.")
+        statement, args = (
+            "UPDATE planning.bulk_sc_groups SET name=%s,description=%s,updated_at=now() "
+            "WHERE id=%s RETURNING id",
+            (name, description, int(group_id)),
+        )
+    elif operation == "remove_group":
+        # The database's FK cascade affects only this user's group membership records.
+        statement, args = (
+            "DELETE FROM planning.bulk_sc_groups WHERE id=%s RETURNING id",
+            (int(group_id),),
         )
     elif operation == "add_item":
         sc_no = normalize_sc(sc_no)
