@@ -9,7 +9,7 @@ showSidebarBorder = true
 [theme.light]
 primaryColor = "#2563EB"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#FFFFFF"
 textColor = "#111827"
 borderColor = "#E5E7EB"
 dataframeBorderColor = "#E5E7EB"
@@ -18,7 +18,7 @@ dataframeHeaderTextColor = "#111827"
 
 [theme.light.sidebar]
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#FFFFFF"
 textColor = "#111827"
 borderColor = "#E5E7EB"
 
