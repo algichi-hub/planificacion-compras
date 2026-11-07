@@ -3,6 +3,7 @@
 Keep the source rows intact for position-based selection and database lookup.
 """
 from datetime import date, datetime
+from datetime import date, datetime
 import pandas as pd
 from src.status_icons import status_icon
 from src.planned_date_style import planned_date_style
