@@ -7,7 +7,7 @@ import plotly.express as px
 import psycopg
 import streamlit as st
 from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
-from src.sc_row_styles import sc_row_style
+from src.sc_overview import overview_display, overview_row_style
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -90,40 +90,52 @@ with tab2:
     else:
         # The sidebar project filter intentionally does not restrict SC lookup:
         # the user must see every position of the requested SC.
+        # One row per SC position; PO/Pos may hold several linked orders.
+        # The earliest planned PO date is used as the deadline indicator.
+        po_link_summary="""
+          LEFT JOIN LATERAL (
+              SELECT string_agg(l.po_no || '/' || l.po_pos, ', '
+                                ORDER BY l.po_no,l.po_pos) AS po_positions,
+                     min(p.planned_date) AS planned_date
+              FROM core.sc_po_links l
+              JOIN core.po_lines p
+                ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
+                   (l.snapshot_id,l.company,l.po_no,l.po_pos)
+              WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
+                AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos
+          ) linked ON true
+        """
         if workflow_ready:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
-                    CASE WHEN s.requested_qty>0 AND s.workflow_state<>'Pendiente conciliación'
-                         THEN LEAST(100,ROUND(100*s.approved_qty/s.requested_qty,2))
-                         ELSE NULL END AS coverage_pct,
-                    s.workflow_state,s.workflow_issue,s.has_reac AS reac_referenciado,
-                    s.incident_open AS incidencia_abierta
+                    s.workflow_state,linked.po_positions,linked.planned_date
                     FROM planning.sc_workflow_status s
+                    """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
-                    ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$' THEN btrim(s.sc_pos)::numeric END NULLS LAST, s.sc_pos""",(sid,sc_number))
+                    ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
+                      THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
         else:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
-                    s.project,s.requested_qty,s.ordered_qty,s.received_qty,
-                    s.approved_qty,s.coverage_state,s.coverage_pct
+                    s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
+                    s.coverage_state,linked.po_positions,linked.planned_date
                     FROM planning.v_sc_coverage s
+                    """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
-                    ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$' THEN btrim(s.sc_pos)::numeric END NULLS LAST, s.sc_pos""",(sid,sc_number))
+                    ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
+                      THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
         if overview.empty:
             st.info("No se encontraron posiciones para esa SC en el snapshot seleccionado.")
         else:
             st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
-            # Native Streamlit selection leaves the table copyable and sortable.
-            # Styler changes only cell colors; keep the original DataFrame for
-            # row selection and trace lookup, and preserve native copy/sort.
-            # Keep company for exact SC-line lookup, but hide technical
-            # columns from the user-facing table. Data row order is unchanged.
-            visible_overview=overview.drop(
-                columns=["company","coverage_pct","workflow_issue"],errors="ignore"
-            )
-            colored_overview=(visible_overview.style.apply(sc_row_style,axis=1)
-                              if "workflow_state" in visible_overview.columns else visible_overview)
+            st.caption("PO/Pos muestra todos los pedidos asociados. fecha_plan corresponde a la fecha planificada más próxima entre ellos; las fechas vencidas aparecen en rojo y negrita.")
+            # Preserve the original result for exact company/SC/position lookup.
+            # The displayed DataFrame has exactly 11 user-requested columns.
+            visible_overview=overview_display(overview)
+            madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
             event=st.dataframe(
-                colored_overview,use_container_width=True,hide_index=True,
+                visible_overview.style.apply(
+                    overview_row_style,axis=1,today=madrid_today
+                ),use_container_width=True,hide_index=True,
                 on_select="rerun",selection_mode="single-row",
                 key=f"sc_overview_{sid}_{sc_number}",
             )
