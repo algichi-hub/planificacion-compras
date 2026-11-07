@@ -13,7 +13,7 @@ def test_manage_is_inline_and_legacy_sc_forms_are_gone():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
     manage = app.split("with tab4:", 1)[1]
     assert 'st.button("Añadir nueva SC"' in manage
-    assert 'st.button("Borrar",key=f"manage_delete_' in manage
+    assert 'st.button("X",help="Borrar esta SC del grupo",key=f"manage_delete_' in manage
     assert '@st.dialog("Confirmar borrado")' in manage
     assert '"Confirmar borrado",type="primary"' in manage
     assert "on_change=_save_existing_item" in manage
@@ -113,7 +113,7 @@ def test_manage_compact_grid_only_scoped_css():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
     manage = app.split("with tab4:", 1)[1]
     assert 'with st.container(key="manage_sc_grid"):' in manage
-    assert 'st.columns([2,5,1.35],gap=None,vertical_alignment="center")' in manage
+    assert 'c_action,c_sc,c_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")' in manage
     assert '.st-key-manage_sc_grid [data-testid="stVerticalBlock"]' in manage
     assert 'gap: 1px !important;' in manage
     assert 'height: 34px !important;' in manage
@@ -122,3 +122,22 @@ def test_manage_compact_grid_only_scoped_css():
     assert 'background: #FEF2F2 !important;' in manage
     # No global input overrides affecting Seguimiento SC or Group SC.
     assert 'input {' not in app.split("with tab4:", 1)[0]
+
+
+def test_delete_is_left_of_sc_and_rows_cannot_wrap():
+    app = (ROOT / "app.py").read_text(encoding="utf-8")
+    manage = app.split("with tab4:", 1)[1]
+    assert 'grid-template-columns: 38px minmax(100px, 2fr) minmax(140px, 5fr)' in manage
+    assert 'display: grid !important;' in manage
+    assert '[data-testid="stColumn"]' in manage
+    row = manage.split('c_action,c_sc,c_desc=st.columns(',1)[1].split(
+        'status=st.session_state.get(f"manage_status_',1)[0]
+    assert row.index('with c_action:') < row.index('with c_sc:') < row.index('with c_desc:')
+    assert 'st.button("X",help="Borrar esta SC del grupo"' in row
+    assert 'st.button("Borrar"' not in manage
+    draft = manage.split('d_action,d_sc,d_desc=st.columns(',1)[1].split(
+        'status=st.session_state.get(f"manage_new_status_',1)[0]
+    assert draft.index('with d_action:') < draft.index('with d_sc:') < draft.index('with d_desc:')
+    assert 'st.button("X",help="Descartar fila nueva"' in draft
+    assert '[data-baseweb="input"]' in manage
+    assert '[data-baseweb="base-input"]' in manage
