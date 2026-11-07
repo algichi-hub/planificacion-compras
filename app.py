@@ -8,7 +8,8 @@ import psycopg
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, DataReturnMode
 from src.manage_grid import parse_manage_event, valid_existing_edit, apply_draft_edit
-from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
+from src.detail_view import receptions_table, detail_row_style, vertical_records
+from src.sc_source_detail import request_detail, planning_detail
 from src.sc_overview import overview_display, overview_row_style
 from src.group_sc_view import group_overview, group_overview_source
 from src.quantity_format import format_sc_quantities
@@ -128,28 +129,48 @@ def render_sc_detail(line, sid, context):
            WHERE l.snapshot_id=%s AND l.company=%s AND l.sc_no=%s AND l.sc_pos=%s
            ORDER BY l.po_no,l.po_pos,r.receipt_date NULLS LAST,r.receipt_no""",
                 (sid,line["company"],line["sc_no"],line["sc_pos"]))
-    detail=transpose_trace(trace, line.get('workflow_state', line.get('coverage_state')))
+    # Fetch original SC rows only for the selected position. Multiple PO allocations
+    # are preserved and joined using both PO number and PO position.
+    source_rows=query("""SELECT fields FROM raw.source_rows
+                         WHERE snapshot_id=%s AND source_name='SC_FAS.csv'
+                           AND fields->>'COMPAÑÍA__0'=%s
+                           AND fields->>'SOLICITUD__6'=%s
+                           AND fields->>'POSICIÓN__7'=%s
+                         ORDER BY source_line""",
+                      (sid,line["company"],line["sc_no"],line["sc_pos"]))
+    raw_records=source_rows["fields"].tolist() if not source_rows.empty else []
+    request=request_detail(line,raw_records)
+    plan=planning_detail(trace,raw_records)
     madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
-    if trace.empty:
+    st.markdown("#### Datos de solicitud")
+    st.dataframe(request,use_container_width=True,hide_index=True,
+                 column_config={"Campo":st.column_config.TextColumn(width="medium"),
+                                "Valor":st.column_config.TextColumn(width="large")},
+                 height=min(720,35*(len(request)+1)+3),
+                 key=f"{widget_prefix}_request")
+    st.markdown("#### Pedido y planificación")
+    if plan.empty:
         st.caption("Esta posición SC no tiene pedidos vinculados.")
-    if not detail.empty:
+    else:
         st.dataframe(
-            detail.style.apply(detail_row_style,axis=1,today=madrid_today,
-                               workflow_state=line.get("workflow_state")),
+            plan.style.apply(detail_row_style,axis=1,today=madrid_today,
+                             workflow_state=line.get("workflow_state")),
             use_container_width=True,hide_index=True,
-            column_config={"Campo": st.column_config.TextColumn(width="medium"),
-                           "Valor": st.column_config.TextColumn(width="large")},
-            height=min(720,35*(len(detail)+1)+3),
+            column_config={"Campo":st.column_config.TextColumn(width="medium"),
+                           "Valor":st.column_config.TextColumn(width="large")},
+            height=min(720,35*(len(plan)+1)+3),
             key=f"{widget_prefix}_detail",
         )
-        st.caption("Solo en estado «Material sin recibir»: fechas vencidas en rojo; entre hoy y los próximos 7 días naturales en amarillo; a más de 7 días en verde. Texto en negrita, sin fondo.")
-        st.download_button(
-            "Exportar detalle CSV",
-            detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
-            file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-            mime="text/csv",
-            key=f"{widget_prefix}_download_detail",
-        )
+        st.caption("Solo en estado «Material sin recibir»: plan actual vencido en rojo; entre hoy y los próximos 7 días naturales en amarillo; a más de 7 días en verde. Texto en negrita, sin fondo.")
+    export=pd.concat([request.assign(Sección="Datos de solicitud"),
+                      plan.assign(Sección="Pedido y planificación")],ignore_index=True)
+    st.download_button(
+        "Exportar detalle CSV",
+        export[["Sección","Campo","Valor"]].to_csv(index=False,sep=";").encode("utf-8-sig"),
+        file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
+        mime="text/csv",
+        key=f"{widget_prefix}_download_detail",
+    )
     st.markdown("#### Recepciones")
     receptions=receptions_table(trace)
     if receptions.empty:
