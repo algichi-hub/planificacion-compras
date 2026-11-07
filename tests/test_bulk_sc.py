@@ -182,3 +182,48 @@ def test_group_overview_supports_empty_results_and_legacy_statuses():
     assert view.iloc[0]["estado"]=="No encontrada"
     assert view.iloc[0]["PO/Pos"]=="—"
     assert group_overview(items.iloc[:0],status).empty
+
+
+def test_group_sc_reuses_selected_sc_detail_sections():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    shared=app.split("def render_sc_detail(line, sid):",1)[1].split("\nwith tab1:",1)[0]
+    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    individual=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
+    assert 'render_sc_detail(line, sid)' in individual
+    assert 'render_sc_detail(line, sid)' in group
+    assert 'selection_mode="single-row"' in group
+    assert 'on_select="rerun"' in group
+    assert 'group_source.iloc[selected_index]' in group
+    assert 'pd.isna(line.get("company"))' in group
+    for heading in (
+        'Detalle SC',
+        'Recepciones asociadas a esta posición SC',
+        'REAC asociados a esta posición SC',
+        'Incidencias asociadas a los pedidos de esta posición SC',
+    ):
+        assert heading in shared
+    for source in ('core.sc_po_links','core.receipts','core.reac_refs','core.incidents'):
+        assert source in shared
+
+
+def test_group_source_keeps_selection_index_and_company_position_keys():
+    import pandas as pd
+    from src.group_sc_view import group_overview_source, group_overview
+    items=pd.DataFrame([{"sc_no":"00022"},{"sc_no":"00042"}])
+    status=pd.DataFrame([
+        {"company":"210","sc_no":"00022","sc_pos":"1","project":"P","article":"A",
+         "description":"B","requested_qty":1,"ordered_qty":1,"received_qty":0,
+         "approved_qty":0,"workflow_state":"Pendiente aprobación",
+         "po_positions":"200/1","planned_date":None},
+        {"company":"230","sc_no":"00022","sc_pos":"2","project":"P","article":"A",
+         "description":"B","requested_qty":2,"ordered_qty":2,"received_qty":0,
+         "approved_qty":0,"workflow_state":"Pendiente aprobación",
+         "po_positions":"201/1","planned_date":None},
+    ])
+    source=group_overview_source(items,status)
+    view=group_overview(items,status)
+    assert len(source)==len(view)==3
+    assert source["company"].iloc[:2].tolist()==["210","230"]
+    assert source["sc_pos"].iloc[:2].tolist()==["1","2"]
+    assert pd.isna(source.iloc[2]["company"])
+    assert view.iloc[2]["SC/Pos"]=="00042"
