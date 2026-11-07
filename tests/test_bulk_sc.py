@@ -119,6 +119,66 @@ def test_group_writes_authorized_parameterized_and_restricted_to_user_tables(mon
 def test_group_sc_report_does_not_render_status_counts_summary():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert 'st.dataframe(format_sc_quantities(bulk_view.style)' in group_part
+    assert 'format_sc_quantities(bulk_view.style).apply(' in group_part
+    assert 'overview_row_style,axis=1,today=madrid_today' in group_part
+    assert 'column_config=overview_column_config()' in group_part
+    assert 'grouped=group_overview(items,group_status)' in group_part
+    assert 'linked.po_positions,linked.planned_date' in group_part
     assert 'counts.rename_axis("Estado")' not in group_part
     assert 'value_counts()' not in group_part
+
+
+def test_group_overview_matches_individual_sc_columns_and_icons():
+    from datetime import date
+    from decimal import Decimal
+    import pandas as pd
+    from src.group_sc_view import group_overview
+    from src.sc_overview import DISPLAY_COLUMNS, overview_display, overview_row_style
+
+    items=pd.DataFrame([
+        {"sc_no":"00012","context_description":"Compra estratégica"},
+        {"sc_no":"00099","context_description":"Pendiente de aparecer"},
+    ])
+    source=pd.DataFrame([
+        {"company":"210","sc_no":"00012","sc_pos":"1","article":"A1",
+         "description":"Primer artículo","project":"P1","po_positions":"001/1",
+         "planned_date":date(2026,11,5),"requested_qty":Decimal("2"),
+         "ordered_qty":Decimal("2"),"received_qty":Decimal("0"),
+         "approved_qty":Decimal("0"),"workflow_state":"Material sin recibir"},
+        {"company":"210","sc_no":"00012","sc_pos":"2","article":"A2",
+         "description":"Segundo artículo","project":"P2","po_positions":"001/2, 002/1",
+         "planned_date":date(2026,12,5),"requested_qty":Decimal("3"),
+         "ordered_qty":Decimal("3"),"received_qty":Decimal("3"),
+         "approved_qty":Decimal("3"),"workflow_state":"Completado"},
+    ])
+    grouped=group_overview(items,source)
+    original=overview_display(source)
+    assert list(grouped.columns)==list(original.columns)==list(DISPLAY_COLUMNS)
+    assert len(grouped)==3
+    pd.testing.assert_frame_equal(grouped.iloc[:2].reset_index(drop=True),original)
+    assert grouped["SC/Pos"].tolist()==["00012/1","00012/2","00099"]
+    assert grouped["PO/Pos"].tolist()==["001/1","001/2, 002/1","—"]
+    assert grouped["fecha_plan"].tolist()==["05/11/2026","05/12/2026","—"]
+    assert grouped["estado"].tolist()==["Material sin recibir","Completado","No encontrada"]
+    assert pd.isna(grouped.iloc[-1][" "])
+    style=overview_row_style(grouped.iloc[0],date(2026,11,7))
+    assert "color: #B91C1C" in style[grouped.columns.get_loc("fecha_plan")]
+    assert all("background" not in x for x in style)
+
+
+def test_group_overview_supports_empty_results_and_legacy_statuses():
+    import pandas as pd
+    from src.group_sc_view import group_overview
+    from src.sc_overview import DISPLAY_COLUMNS
+    items=pd.DataFrame([{"sc_no":"0001","context_description":"C"}])
+    status=pd.DataFrame(columns=[
+        "company","sc_no","sc_pos","article","description","project",
+        "requested_qty","ordered_qty","received_qty","approved_qty",
+        "po_positions","planned_date","coverage_state",
+    ])
+    view=group_overview(items,status)
+    assert tuple(view.columns)==DISPLAY_COLUMNS
+    assert view.iloc[0]["SC/Pos"]=="0001"
+    assert view.iloc[0]["estado"]=="No encontrada"
+    assert view.iloc[0]["PO/Pos"]=="—"
+    assert group_overview(items.iloc[:0],status).empty
