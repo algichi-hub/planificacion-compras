@@ -9,6 +9,7 @@ import streamlit as st
 from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
 from src.sc_overview import overview_display, overview_row_style
 from src.quantity_format import format_sc_quantities
+from src.bulk_sc import is_bulk_admin, write_bulk
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -59,7 +60,7 @@ if project!="Todos":
     where+=" AND project=%s"
     params.append(project)
 
-tab1,tab2,tab3,tab4=st.tabs(["Resumen","Seguimiento SC","REAC / Incidencias","Calidad de datos"])
+tab1,tab2,tab3=st.tabs(["Resumen","Seguimiento SC","Bulk SC"])
 has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
 workflow_ready=False
 if has_workflow_table:
@@ -251,23 +252,131 @@ with tab2:
                     st.dataframe(inc_vertical,use_container_width=True,hide_index=True)
                     st.caption("INC vinculada por pedido y posición; el fichero INC carece de compañía/SC. Revisar las coincidencias de artículo y cualquier vinculación compartida.")
 with tab3:
-    st.subheader("REAC asociados a SC")
-    reac=query("""SELECT r.sc_no,r.sc_pos,r.po_no,r.po_pos,r.reac_no,r.reac_article
-                  FROM core.reac_refs r WHERE r.snapshot_id=%s
-                  ORDER BY r.sc_no,r.sc_pos LIMIT 3000""",(sid,))
-    st.dataframe(reac,use_container_width=True,hide_index=True)
-    st.caption("REAC referido en el extracto SC; no se asigna automáticamente una cantidad rechazada.")
-    st.subheader("Incidencias de almacén")
-    incidents=query("""SELECT record_no,sequence_no,po_no,po_pos,article,category,resolved,detail
-                        FROM core.incidents WHERE snapshot_id=%s
-                        ORDER BY record_no DESC LIMIT 3000""",(sid,))
-    st.dataframe(incidents,use_container_width=True,hide_index=True)
-    st.caption("Las incidencias sin posición fiable no se asignan automáticamente a una recepción.")
-with tab4:
-    issues=query("""SELECT source_name,line_number,severity,issue_code,details FROM audit.import_issues
-                    WHERE snapshot_id=%s ORDER BY CASE severity WHEN 'error' THEN 0 ELSE 1 END,id LIMIT 5000""",(sid,))
-    st.dataframe(issues,use_container_width=True,hide_index=True)
-    totals=query("SELECT source_name,rows_total,rows_ok,rows_invalid FROM audit.source_files WHERE snapshot_id=%s ORDER BY source_name",(sid,))
-    st.dataframe(totals,use_container_width=True,hide_index=True)
-    st.download_button("Exportar incidencias de calidad",issues.to_csv(index=False,sep=";").encode("utf-8-sig"),
-                       file_name="calidad_datos.csv",mime="text/csv")
+    st.subheader("Bulk SC")
+    st.caption("Grupos persistentes de SC con descripción contextual. Los estados proceden del snapshot seleccionado.")
+    try:
+        groups=query("SELECT id,name,description FROM planning.bulk_sc_groups ORDER BY name")
+    except Exception:
+        groups=pd.DataFrame()
+
+    try:
+        auth_configured=bool(st.secrets.get("auth"))
+        admin_emails=str(st.secrets.get("BULK_ADMIN_EMAILS",""))
+        admin_dsn=st.secrets.get("BULK_ADMIN_DATABASE_URL")
+    except (KeyError,FileNotFoundError):
+        auth_configured=False
+        admin_emails=""
+        admin_dsn=None
+    identity=st.user.to_dict() if auth_configured else {}
+    admin=is_bulk_admin(identity,admin_emails) and bool(admin_dsn)
+
+    if auth_configured:
+        if identity.get("is_logged_in"):
+            if st.button("Cerrar sesión de administrador",key="bulk_logout"):
+                st.logout()
+        elif st.button("Iniciar sesión como administrador",key="bulk_login"):
+            st.login()
+    if not admin:
+        st.caption("Consulta disponible en modo lectura. La edición requiere una cuenta de administrador verificada y conexión de escritura restringida.")
+
+    if admin:
+        with st.expander("Crear grupo Bulk SC"):
+            with st.form("bulk_create_group"):
+                new_group=st.text_input("Nombre del grupo",max_chars=160)
+                if st.form_submit_button("Guardar grupo"):
+                    try:
+                        write_bulk(admin_dsn,identity,admin_emails,"create_group",name=new_group)
+                        query.clear()
+                        st.rerun()
+                    except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                        st.error(f"No se pudo guardar el grupo: {type(exc).__name__}")
+
+    if groups.empty:
+        st.info("Aún no hay grupos Bulk SC disponibles, o falta aplicar la migración 008.")
+    else:
+        group_id=int(st.selectbox("Grupo",groups["id"].tolist(),
+                    format_func=lambda x:groups.loc[groups.id==x,"name"].iloc[0]))
+        items=query("""SELECT id,sc_no,context_description
+                       FROM planning.bulk_sc_items
+                       WHERE group_id=%s ORDER BY sc_no""",(group_id,))
+        st.dataframe(items[["sc_no","context_description"]].rename(columns={
+            "sc_no":"SC","context_description":"Descripción contextual"
+        }),hide_index=True,use_container_width=True)
+        if admin:
+            with st.expander("Añadir o actualizar SC"):
+                with st.form("bulk_add_item"):
+                    sc_entry=st.text_input("Número SC",max_chars=40)
+                    context_entry=st.text_input("Descripción contextual",max_chars=500)
+                    if st.form_submit_button("Guardar SC"):
+                        try:
+                            write_bulk(admin_dsn,identity,admin_emails,"add_item",
+                                       group_id=group_id,sc_no=sc_entry,description=context_entry)
+                            query.clear()
+                            st.rerun()
+                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                            st.error(f"No se pudo guardar la SC: {type(exc).__name__}")
+            if not items.empty:
+                with st.expander("Editar o retirar una SC"):
+                    item_id=int(st.selectbox("Referencia",items["id"].tolist(),
+                               format_func=lambda x:items.loc[items.id==x,"sc_no"].iloc[0]))
+                    selected_item=items.loc[items.id==item_id].iloc[0]
+                    with st.form(f"bulk_edit_{item_id}"):
+                        revised_description=st.text_input("Descripción",value=str(selected_item["context_description"]),max_chars=500)
+                        if st.form_submit_button("Actualizar descripción"):
+                            try:
+                                write_bulk(admin_dsn,identity,admin_emails,"edit_item",
+                                           group_id=group_id,item_id=item_id,
+                                           description=revised_description)
+                                query.clear()
+                                st.rerun()
+                            except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                                st.error(f"No se pudo modificar: {type(exc).__name__}")
+                    with st.form(f"bulk_remove_{item_id}"):
+                        confirmed=st.checkbox("Confirmar retirada de esta SC del grupo")
+                        if st.form_submit_button("Retirar SC",disabled=not confirmed):
+                            try:
+                                write_bulk(admin_dsn,identity,admin_emails,"remove_item",
+                                           group_id=group_id,item_id=item_id)
+                                query.clear()
+                                st.rerun()
+                            except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                                st.error(f"No se pudo retirar: {type(exc).__name__}")
+
+        if items.empty:
+            st.caption("Añade referencias SC para consultar su estado conjuntamente.")
+        elif st.button("Consultar grupo",type="primary"):
+            numbers=items["sc_no"].astype(str).tolist()
+            source_table=("planning.sc_workflow_status" if workflow_ready
+                          else "planning.v_sc_coverage")
+            status_column="workflow_state" if workflow_ready else "coverage_state"
+            group_status=query(f"""SELECT sc_no,sc_pos,article,description,project,
+                           requested_qty,ordered_qty,received_qty,approved_qty,
+                           {status_column} AS estado
+                           FROM {source_table}
+                           WHERE snapshot_id=%s AND sc_no=ANY(%s)
+                           ORDER BY sc_no,sc_pos""",(sid,numbers))
+            grouped=items[["sc_no","context_description"]].merge(
+                group_status,on="sc_no",how="left",sort=False
+            )
+            st.session_state["bulk_result"]=(sid,group_id,grouped)
+        stored=st.session_state.get("bulk_result")
+        if stored and stored[0]==sid and stored[1]==group_id:
+            result=stored[2].copy()
+            if result.empty:
+                st.info("No hay resultados en este grupo.")
+            else:
+                result=result.drop(columns=["id"],errors="ignore")
+                result["SC/Pos"]=result["sc_no"].astype(str)+"/"+result["sc_pos"].fillna("—").astype(str)
+                result.loc[result["sc_pos"].isna(),"SC/Pos"]=result.loc[result["sc_pos"].isna(),"sc_no"]
+                result["estado"]=result["estado"].fillna("No encontrada")
+                counts=result["estado"].value_counts()
+                st.caption(f"{result['sc_no'].nunique()} SC · {len(result)} posiciones o referencias")
+                st.dataframe(result[["SC/Pos","context_description","project","article",
+                                      "description","requested_qty","ordered_qty",
+                                      "received_qty","approved_qty","estado"]].rename(
+                    columns={"context_description":"Contexto","project":"Proyecto",
+                             "description":"Descripción ERP","requested_qty":"Sol",
+                             "ordered_qty":"Ped","received_qty":"Rec",
+                             "approved_qty":"Apr"}),hide_index=True,use_container_width=True)
+                st.dataframe(counts.rename_axis("Estado").reset_index(name="Posiciones"),
+                             hide_index=True,width="content")
