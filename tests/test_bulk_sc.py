@@ -102,11 +102,15 @@ def test_group_writes_authorized_parameterized_and_restricted_to_user_tables(mon
         ("create_group",{"name":"Grupo A","description":"Descripción A"}),
         ("edit_group",{"group_id":7,"name":"Grupo B","description":"Descripción B"}),
         ("remove_group",{"group_id":7}),
+        ("edit_item",{"group_id":7,"item_id":3,"sc_no":"000421","description":"Componente cambiado"}),
     ]:
         assert write_bulk("test-dsn",user,"admin@example.com",operation,**kwargs)==7
-    assert len(executed)==3
-    assert all("planning.bulk_sc_groups" in sql and "%s" in sql for sql,_ in executed)
+    assert len(executed)==4
+    assert all("%s" in sql for sql,_ in executed)
+    assert all("planning.bulk_sc_groups" in sql for sql,_ in executed[:3])
+    assert "planning.bulk_sc_items" in executed[3][0]
     assert executed[0][1]==("Grupo A","Descripción A")
     assert executed[1][1]==("Grupo B","Descripción B",7)
     assert executed[2][1]==(7,)
+    assert executed[3][1]==("000421","Componente cambiado",3,7)
     assert all("core." not in sql and "raw." not in sql for sql,_ in executed)
