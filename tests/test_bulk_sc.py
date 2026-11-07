@@ -65,3 +65,11 @@ def test_only_three_tabs_and_admin_gate_before_mutation():
     assert 'if admin:' in app
     assert "write_bulk(admin_dsn,identity,admin_emails" in app
     assert 'st.login("google")' in app and "st.logout()" in app
+
+
+def test_streamlit_oidc_auth_extra_and_dependencies_installed():
+    import importlib.util
+    dependencies=(ROOT/"requirements.txt").read_text(encoding="utf-8")
+    assert "streamlit[auth]>=" in dependencies
+    assert importlib.util.find_spec("authlib") is not None
+    assert importlib.util.find_spec("httpx") is not None
