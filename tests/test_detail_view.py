@@ -179,10 +179,11 @@ def test_dates_ignored_for_other_sc_workflow_states():
         row,today,"Material sin recibir"))
 
 
-def test_main_sc_table_uses_display_subset_but_original_selection():
+def test_main_sc_table_retains_original_selection_and_uses_new_display():
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
-    assert 'visible_overview=overview.drop(' in app
-    assert 'columns=["company","coverage_pct","workflow_issue"],errors="ignore"' in app
+    assert 'visible_overview=overview_display(overview)' in app
     assert 'line=overview.iloc[selected_rows[0]]' in app
-    assert 'workflow_state=line.get("workflow_state")' in app
+    assert 'overview_row_style,axis=1,today=madrid_today' in app
+    assert "min(p.planned_date) AS planned_date" in app
+    assert "string_agg(l.po_no || '/' || l.po_pos" in app
