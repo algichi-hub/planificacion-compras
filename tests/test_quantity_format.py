@@ -82,10 +82,12 @@ def test_detail_quantity_fract_preserved():
     assert view.loc[view.Campo=="Cantidad pedida","Valor"].iloc[0]=="123,00001"
 
 
-def test_overview_uses_compact_width_without_overriding_styler_number_format():
+def test_overview_auto_sizes_only_quantity_columns_without_overriding_number_format():
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
-    assert 'name: st.column_config.Column(width="small")' in app
+    assert 'name: st.column_config.Column(width=None)' in app
     assert 'for name in ("Sol", "Ped", "Rec", "Apr")' in app
     assert 'format_sc_quantities(visible_overview.style)' in app
     assert 'st.column_config.NumberColumn(width="small")' not in app
+    # No explicit widths for the other seven columns.
+    assert app.count('st.column_config.Column(width=None)') == 1
