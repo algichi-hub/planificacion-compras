@@ -254,7 +254,7 @@ with tab2:
             st.info("No se encontraron posiciones para esa SC en el snapshot seleccionado.")
         else:
             st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
-            st.caption("PO/Pos muestra todos los pedidos asociados. fecha_plan corresponde a la fecha planificada más próxima entre ellos; las fechas vencidas aparecen en rojo y negrita.")
+            st.caption("PO/Pos muestra todos los pedidos asociados. fecha_plan corresponde a la fecha planificada más próxima entre ellos. Para Material sin recibir: rojo si vencida, amarillo si faltan de 0 a 7 días naturales y verde si faltan más de 7 días.")
             # Preserve the original result for exact company/SC/position lookup.
             # The displayed DataFrame adds a status-symbol column without altering selection.
             visible_overview=overview_display(overview)
