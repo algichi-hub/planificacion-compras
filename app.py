@@ -333,7 +333,7 @@ with tab3:
                                 st.error(f"No se pudo modificar: {type(exc).__name__}")
                     with st.form(f"bulk_remove_{item_id}"):
                         confirmed=st.checkbox("Confirmar retirada de esta SC del grupo")
-                        if st.form_submit_button("Retirar SC",disabled=not confirmed):
+                        if st.form_submit_button("Retirar SC") and confirmed:
                             try:
                                 write_bulk(admin_dsn,identity,admin_emails,"remove_item",
                                            group_id=group_id,item_id=item_id)
@@ -371,12 +371,14 @@ with tab3:
                 result["estado"]=result["estado"].fillna("No encontrada")
                 counts=result["estado"].value_counts()
                 st.caption(f"{result['sc_no'].nunique()} SC · {len(result)} posiciones o referencias")
-                st.dataframe(result[["SC/Pos","context_description","project","article",
-                                      "description","requested_qty","ordered_qty",
-                                      "received_qty","approved_qty","estado"]].rename(
+                bulk_view=result[["SC/Pos","context_description","project","article",
+                                  "description","requested_qty","ordered_qty",
+                                  "received_qty","approved_qty","estado"]].rename(
                     columns={"context_description":"Contexto","project":"Proyecto",
                              "description":"Descripción ERP","requested_qty":"Sol",
                              "ordered_qty":"Ped","received_qty":"Rec",
-                             "approved_qty":"Apr"}),hide_index=True,use_container_width=True)
+                             "approved_qty":"Apr"})
+                st.dataframe(format_sc_quantities(bulk_view.style),
+                             hide_index=True,use_container_width=True)
                 st.dataframe(counts.rename_axis("Estado").reset_index(name="Posiciones"),
                              hide_index=True,width="content")
