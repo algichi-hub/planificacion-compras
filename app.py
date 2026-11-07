@@ -131,7 +131,7 @@ with tab2:
             st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
             st.caption("PO/Pos muestra todos los pedidos asociados. fecha_plan corresponde a la fecha planificada más próxima entre ellos; las fechas vencidas aparecen en rojo y negrita.")
             # Preserve the original result for exact company/SC/position lookup.
-            # The displayed DataFrame has exactly 11 user-requested columns.
+            # The displayed DataFrame adds a status-symbol column without altering selection.
             visible_overview=overview_display(overview)
             madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
             event=st.dataframe(
@@ -139,8 +139,10 @@ with tab2:
                     overview_row_style,axis=1,today=madrid_today
                 ),use_container_width=True,hide_index=True,
                 column_config={
-                    name: st.column_config.Column(width=None)
-                    for name in ("Sol", "Ped", "Rec", "Apr")
+                    **{name: st.column_config.Column(width=None)
+                       for name in ("Sol", "Ped", "Rec", "Apr")},
+                    " ": st.column_config.ImageColumn("", width="small",
+                        help="Estado operativo SC"),
                 },
                 on_select="rerun",selection_mode="single-row",
                 key=f"sc_overview_{sid}_{sc_number}",
@@ -171,7 +173,9 @@ with tab2:
                         detail.style.apply(detail_row_style,axis=1,today=madrid_today,
                                            workflow_state=line.get("workflow_state")),
                         use_container_width=True,hide_index=True,
-                        column_config={"Campo": st.column_config.TextColumn(width="medium"),
+                        column_config={" ": st.column_config.ImageColumn("",width="small",
+                                                         help="Estado operativo SC"),
+                                       "Campo": st.column_config.TextColumn(width="medium"),
                                        "Valor": st.column_config.TextColumn(width="large")},
                         height=min(720,35*(len(detail)+1)+3),
                     )
