@@ -34,9 +34,11 @@ def status_icon(state):
     if not isinstance(state, str) or state not in STATUS_SYMBOLS:
         return None
     name, color = STATUS_SYMBOLS[state]
+    # Keep an enlarged viewBox to preserve 30% visual padding even when
+    # Streamlit scales the SVG image to fill the grid cell.
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960" '
-        f'width="17" height="17" fill="{color}">'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-206 -1166 1372 1372" '
+        f'width="24" height="24" fill="{color}">'
         f'<path d="{PATHS[name]}"/></svg>'
     )
     return "data:image/svg+xml;utf8," + quote(svg, safe="")
