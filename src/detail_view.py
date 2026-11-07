@@ -25,23 +25,21 @@ LABELS = {
 
 
 def display_value(value):
-    """Keep identifiers intact, display decimals with comma for Spanish users."""
+    """Preserve identifiers, show quantities compactly and dates in Spanish."""
     if value is None or (not isinstance(value, (list, tuple, dict)) and pd.isna(value)):
         return "—"
     if isinstance(value, Decimal):
-        return format(value, "f").replace(".", ",")
+        from src.quantity_format import format_quantity
+        return format_quantity(value)
     if isinstance(value, (date, datetime)):
         return value.strftime("%d/%m/%Y")
     return str(value)
 
 
 def _compact_quantity(value):
-    """Preserve decimal precision without unnecessary trailing zeros."""
-    if value is None or pd.isna(value):
-        return "—"
-    if isinstance(value, Decimal):
-        return (format(value, "f").rstrip("0").rstrip(".") if "." in format(value, "f") else format(value, "f")).replace(".", ",")
-    return str(value).replace(".", ",") if isinstance(value, float) else str(value)
+    """Use the shared lossless numeric formatter for receipt movements."""
+    from src.quantity_format import format_quantity
+    return format_quantity(value)
 
 
 def transpose_trace(trace, workflow_state=None):
