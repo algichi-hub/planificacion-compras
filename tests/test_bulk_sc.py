@@ -56,12 +56,19 @@ def test_migration_keeps_user_lists_separate_from_erp():
         assert word not in sql
 
 
-def test_only_three_tabs_and_admin_gate_before_mutation():
+def test_separate_group_reporting_and_manage_tab_with_admin_gate():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert '["Resumen","Seguimiento SC","Bulk SC"]' in app
+    assert '["Resumen","Seguimiento SC","Group SC","Manage"]' in app
+    assert "with tab3:" in app and "with tab4:" in app
+    group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    manage_part=app.split("with tab4:",1)[1]
+    assert "Consultar grupo" in group_part
+    assert "write_bulk(" not in group_part
+    assert "write_bulk(" in manage_part
+    assert "remove_group" in manage_part and "edit_group" in manage_part
     assert '"REAC / Incidencias","Calidad de datos"' not in app
     assert "admin=is_bulk_admin(identity,admin_emails) and bool(admin_dsn)" in app
-    assert 'with st.expander("Crear grupo Bulk SC"):' in app
+    assert 'with st.expander("Crear grupo"):' in app
     assert 'if admin:' in app
     assert "write_bulk(admin_dsn,identity,admin_emails" in app
     assert 'st.login("google")' in app and "st.logout()" in app
@@ -73,3 +80,33 @@ def test_streamlit_oidc_auth_extra_and_dependencies_installed():
     assert "streamlit[auth]>=" in dependencies
     assert importlib.util.find_spec("authlib") is not None
     assert importlib.util.find_spec("httpx") is not None
+
+
+def test_group_writes_authorized_parameterized_and_restricted_to_user_tables(monkeypatch):
+    from src import bulk_sc
+    executed=[]
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        def execute(self,sql,params):
+            executed.append((sql,params))
+        def fetchone(self): return (7,)
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        def transaction(self): return self
+        def cursor(self): return Cursor()
+    monkeypatch.setattr(bulk_sc.psycopg,"connect",lambda *a,**kw: Conn())
+    user={"is_logged_in":True,"email_verified":True,"email":"admin@example.com"}
+    for operation,kwargs in [
+        ("create_group",{"name":"Grupo A","description":"Descripción A"}),
+        ("edit_group",{"group_id":7,"name":"Grupo B","description":"Descripción B"}),
+        ("remove_group",{"group_id":7}),
+    ]:
+        assert write_bulk("test-dsn",user,"admin@example.com",operation,**kwargs)==7
+    assert len(executed)==3
+    assert all("planning.bulk_sc_groups" in sql and "%s" in sql for sql,_ in executed)
+    assert executed[0][1]==("Grupo A","Descripción A")
+    assert executed[1][1]==("Grupo B","Descripción B",7)
+    assert executed[2][1]==(7,)
+    assert all("core." not in sql and "raw." not in sql for sql,_ in executed)
