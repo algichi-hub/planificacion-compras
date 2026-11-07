@@ -274,8 +274,8 @@ with tab3:
         if identity.get("is_logged_in"):
             if st.button("Cerrar sesión de administrador",key="bulk_logout"):
                 st.logout()
-        elif st.button("Iniciar sesión como administrador",key="bulk_login"):
-            st.login()
+        elif st.button("Iniciar sesión con Google",key="bulk_login"):
+            st.login("google")
     if not admin:
         st.caption("Consulta disponible en modo lectura. La edición requiere una cuenta de administrador verificada y conexión de escritura restringida.")
 
