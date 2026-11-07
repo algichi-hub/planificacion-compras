@@ -114,7 +114,9 @@ def test_group_sc_reporting_retains_read_only_and_selection():
 def test_aggrid_layout_pin_and_delete_column():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     manage=app.split("with tab4:",1)[1]
-    assert 'b.textContent=\'X\'' in manage
+    assert "return '<button type=" in manage
+    assert "document.createElement('button')" not in manage
+    assert "return b;" not in manage
     assert 'border-radius:0' in manage
     assert '"field":"delete"' in manage
     assert '"pinned":"left"' in manage
@@ -170,3 +172,15 @@ def test_invalid_grid_edits_do_not_pass_validation():
     with pytest.raises(ValueError):
         valid_existing_edit(parse_manage_event(
             {"type":"edit","id":999,"field":"sc_no","value":"1"}),items)
+
+
+def test_delete_renderer_returns_html_string_not_dom_element():
+    """Regression for React #31: HTMLButtonElement cannot be rendered as a child."""
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    renderer=app.split('delete_renderer=JsCode("""',1)[1].split('""")',1)[0]
+    assert "return '<button type=" in renderer
+    assert "type=\"button\"" in renderer
+    assert "border-radius:0" in renderer
+    assert "document.createElement" not in renderer
+    assert "return b" not in renderer
+    assert "cellClicked" in app
