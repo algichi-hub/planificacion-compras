@@ -34,6 +34,25 @@ def query(sql,params=()):
             cur.execute(sql,params)
             return pd.DataFrame(cur.fetchall(),columns=[col.name for col in cur.description])
 
+@st.cache_data(ttl=600,show_spinner=False)
+def group_catalogue():
+    """Isolated catalogue cache: invalidations never flush ERP/snapshot data."""
+    return _read_management("SELECT id,name,description FROM planning.bulk_sc_groups ORDER BY name")
+
+@st.cache_data(ttl=600,show_spinner=False)
+def group_items(group_id):
+    """Isolated cache for one group's membership."""
+    return _read_management(
+        "SELECT id,sc_no,context_description FROM planning.bulk_sc_items "
+        "WHERE group_id=%s ORDER BY sc_no", (int(group_id),)
+    )
+
+def _read_management(sql, params=()):
+    with psycopg.connect(connection_string(),connect_timeout=15) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql,params)
+            return pd.DataFrame(cur.fetchall(),columns=[col.name for col in cur.description])
+
 if not connection_string():
     st.info("Configura DATABASE_URL como secreto del despliegue. No incluyas credenciales en Git.")
     st.stop()
@@ -276,7 +295,7 @@ with tab2:
 
 # Shared, read-only group catalogue. Admin privileges are evaluated only in Manage.
 try:
-    groups=query("SELECT id,name,description FROM planning.bulk_sc_groups ORDER BY name")
+    groups=group_catalogue()
 except psycopg.Error:
     groups=pd.DataFrame(columns=["id","name","description"])
 
@@ -293,9 +312,7 @@ with tab3:
         group_record=groups.loc[groups.id==group_id].iloc[0]
         if str(group_record["description"] or "").strip():
             st.caption(str(group_record["description"]))
-        items=query("""SELECT id,sc_no,context_description
-                       FROM planning.bulk_sc_items
-                       WHERE group_id=%s ORDER BY sc_no""",(group_id,))
+        items=group_items(group_id)
         st.dataframe(items[["sc_no","context_description"]].rename(columns={
             "sc_no":"SC","context_description":"Descripción contextual"
         }),hide_index=True,use_container_width=True)
@@ -377,7 +394,8 @@ with tab4:
                     try:
                         write_bulk(admin_dsn,identity,admin_emails,"create_group",
                                    name=new_group,description=new_description)
-                        query.clear()
+                        group_catalogue.clear()
+                        group_items.clear()
                         st.session_state.pop("bulk_result",None)
                         st.rerun()
                     except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
@@ -389,9 +407,7 @@ with tab4:
                 format_func=lambda x:groups.loc[groups.id==x,"name"].iloc[0],
             ))
             selected_group=groups.loc[groups.id==group_id_manage].iloc[0]
-            items_manage=query("""SELECT id,sc_no,context_description
-                                  FROM planning.bulk_sc_items
-                                  WHERE group_id=%s ORDER BY sc_no""",(group_id_manage,))
+            items_manage=group_items(group_id_manage)
             st.caption("Edita las celdas directamente. Se guardan al confirmar la edición.")
             draft_key=f"manage_grid_drafts_{group_id_manage}"
             revision_key=f"manage_grid_revision_{group_id_manage}"
@@ -399,7 +415,7 @@ with tab4:
             st.session_state.setdefault(revision_key,0)
 
             def _refresh_manage():
-                query.clear()
+                group_items.clear()
                 st.session_state.pop("bulk_result",None)
                 st.session_state[revision_key]+=1
 
@@ -424,141 +440,146 @@ with tab4:
                             _refresh_manage()
                             st.rerun()
 
-            # The hidden row id is immutable; SC is text to retain leading zeros.
-            rows=items_manage[["id","sc_no","context_description"]].copy()
-            rows["id"]=rows["id"].astype(int)
-            rows["sc_no"]=rows["sc_no"].astype(str)
-            rows["context_description"]=rows["context_description"].astype(str)
-            for draft_id,draft in st.session_state[draft_key].items():
-                rows.loc[len(rows)]=[draft_id,draft["sc_no"],draft["context_description"]]
-            rows.insert(0,"delete","X")
+            @st.fragment
+            def render_manage_grid():
+                # The hidden row id is immutable; SC is text to retain leading zeros.
+                items_manage=group_items(group_id_manage)
+                rows=items_manage[["id","sc_no","context_description"]].copy()
+                rows["id"]=rows["id"].astype(int)
+                rows["sc_no"]=rows["sc_no"].astype(str)
+                rows["context_description"]=rows["context_description"].astype(str)
+                for draft_id,draft in st.session_state[draft_key].items():
+                    rows.loc[len(rows)]=[draft_id,draft["sc_no"],draft["context_description"]]
+                rows.insert(0,"delete","X")
 
-            # AG Grid's React wrapper must receive a string, not an HTMLButtonElement.
-            # Event handling stays on cellClicked (the click bubbles from the button).
-            # Plain text avoids DOM/HTML escaping and React #31 in AG Grid cells.
-            # The cell itself receives cellClicked; no custom renderer required.
-            collect_event=JsCode("""
-                function({streamlitRerunEventTriggerName,eventData}) {
-                    if (!eventData || !eventData.data) return null;
-                    const row=eventData.data;
-                    const col=eventData.column ? eventData.column.getColId() : '';
-                    if (streamlitRerunEventTriggerName === 'cellClicked' && col === 'delete')
-                        return {type:'delete',id:row.id};
-                    if (streamlitRerunEventTriggerName === 'cellValueChanged'
-                        && (col === 'sc_no' || col === 'context_description'))
-                        return {type:'edit',id:row.id,field:col,value:String(eventData.newValue ?? '')};
-                    return null;
-                }
-            """)
-            should_return=JsCode("""
-                function({streamlitRerunEventTriggerName,eventData}) {
-                    if (!eventData || !eventData.data) return false;
-                    const col=eventData.column ? eventData.column.getColId() : '';
-                    return (streamlitRerunEventTriggerName === 'cellValueChanged'
+                # AG Grid's React wrapper must receive a string, not an HTMLButtonElement.
+                # Event handling stays on cellClicked (the click bubbles from the button).
+                # Plain text avoids DOM/HTML escaping and React #31 in AG Grid cells.
+                # The cell itself receives cellClicked; no custom renderer required.
+                collect_event=JsCode("""
+                    function({streamlitRerunEventTriggerName,eventData}) {
+                        if (!eventData || !eventData.data) return null;
+                        const row=eventData.data;
+                        const col=eventData.column ? eventData.column.getColId() : '';
+                        if (streamlitRerunEventTriggerName === 'cellClicked' && col === 'delete')
+                            return {type:'delete',id:row.id};
+                        if (streamlitRerunEventTriggerName === 'cellValueChanged'
                             && (col === 'sc_no' || col === 'context_description'))
-                           || (streamlitRerunEventTriggerName === 'cellClicked'
-                               && col === 'delete');
+                            return {type:'edit',id:row.id,field:col,value:String(eventData.newValue ?? '')};
+                        return null;
+                    }
+                """)
+                should_return=JsCode("""
+                    function({streamlitRerunEventTriggerName,eventData}) {
+                        if (!eventData || !eventData.data) return false;
+                        const col=eventData.column ? eventData.column.getColId() : '';
+                        return (streamlitRerunEventTriggerName === 'cellValueChanged'
+                                && (col === 'sc_no' || col === 'context_description'))
+                               || (streamlitRerunEventTriggerName === 'cellClicked'
+                                   && col === 'delete');
+                    }
+                """)
+                grid_options={
+                    "columnDefs":[
+                        {"field":"delete","headerName":"","width":38,"minWidth":38,"maxWidth":38,
+                         "pinned":"left","editable":False,"sortable":False,"resizable":False,
+                         "cellStyle":{"color":"#B91C1C","fontWeight":"700","textAlign":"center",
+                                      "cursor":"pointer","paddingLeft":"0","paddingRight":"0"}},
+                        {"field":"sc_no","headerName":"SC","minWidth":110,"width":170,
+                         "editable":True,"cellDataType":"text"},
+                        {"field":"context_description","headerName":"Descripción contextual",
+                         "minWidth":160,"flex":1,"editable":True,"cellDataType":"text"},
+                    ],
+                    "defaultColDef":{"sortable":False,"filter":False,"resizable":True,
+                                     "singleClickEdit":True},
+                    "rowHeight":32,"headerHeight":32,
+                    "getRowId":JsCode("function(p){ return String(p.data.id); }"),
+                    "suppressRowClickSelection":True,
+                    "stopEditingWhenCellsLoseFocus":True,
+                    "ensureDomOrder":True,
+                    "suppressMovableColumns":True,
+                    "suppressCellFocus":False,
                 }
-            """)
-            grid_options={
-                "columnDefs":[
-                    {"field":"delete","headerName":"","width":38,"minWidth":38,"maxWidth":38,
-                     "pinned":"left","editable":False,"sortable":False,"resizable":False,
-                     "cellStyle":{"color":"#B91C1C","fontWeight":"700","textAlign":"center",
-                                  "cursor":"pointer","paddingLeft":"0","paddingRight":"0"}},
-                    {"field":"sc_no","headerName":"SC","minWidth":110,"width":170,
-                     "editable":True,"cellDataType":"text"},
-                    {"field":"context_description","headerName":"Descripción contextual",
-                     "minWidth":160,"flex":1,"editable":True,"cellDataType":"text"},
-                ],
-                "defaultColDef":{"sortable":False,"filter":False,"resizable":True,
-                                 "singleClickEdit":True},
-                "rowHeight":32,"headerHeight":32,
-                "getRowId":JsCode("function(p){ return String(p.data.id); }"),
-                "suppressRowClickSelection":True,
-                "stopEditingWhenCellsLoseFocus":True,
-                "ensureDomOrder":True,
-                "suppressMovableColumns":True,
-                "suppressCellFocus":False,
-            }
-            error_key=f"manage_grid_error_{group_id_manage}"
-            if st.session_state.get(error_key):
-                st.error(st.session_state.pop(error_key))
-            st.markdown("**SC del grupo**")
-            grid_result=AgGrid(
-                rows,gridOptions=grid_options,
-                height=min(450,40+max(1,len(rows))*32),
-                theme="streamlit",allow_unsafe_jscode=True,
-                enable_enterprise_modules=False,
-                data_return_mode=DataReturnMode.CUSTOM,
-                custom_jscode_for_grid_return=collect_event,
-                should_grid_return=should_return,
-                update_on=["cellValueChanged","cellClicked"],
-                key=f"manage_grid_{group_id_manage}_{st.session_state[revision_key]}",
-                show_toolbar=False,show_search=False,show_download_button=False,
-                server_sync_strategy="server_wins",
-                custom_css={
-                    ".ag-root-wrapper":{"borderRadius":"0px !important"},
-                    ".ag-cell":{"borderRadius":"0px !important","paddingTop":"0px","paddingBottom":"0px"},
-                    ".ag-row":{"borderBottom":"1px solid var(--ag-border-color)"},
-                },
-            )
-            event=parse_manage_event(grid_result.raw_data if hasattr(grid_result,"raw_data") else None)
-            if event:
-                row_id=event["id"]
-                if event["type"]=="delete":
-                    if row_id < 0:
-                        st.session_state[draft_key].pop(row_id,None)
-                        st.session_state[revision_key]+=1
-                        st.rerun()
-                    matched=items_manage.loc[items_manage["id"]==row_id]
-                    if len(matched)==1:
-                        _confirm_remove_item(row_id,str(matched.iloc[0]["sc_no"]))
-                elif row_id < 0:
-                    draft=st.session_state[draft_key].get(row_id)
-                    if draft is not None:
-                        draft,complete=apply_draft_edit(draft,event)
-                        st.session_state[draft_key][row_id]=draft
-                        if complete:
-                            try:
-                                write_bulk(admin_dsn,identity,admin_emails,"insert_item",
-                                           group_id=group_id_manage,sc_no=draft["sc_no"],
-                                           description=draft["context_description"])
-                            except ValueError as exc:
-                                st.error(str(exc))
-                            except (psycopg.Error,PermissionError,RuntimeError) as exc:
-                                st.error(f"No se pudo añadir la SC: {type(exc).__name__}")
-                            else:
-                                st.session_state[draft_key].pop(row_id,None)
-                                _refresh_manage()
-                                st.rerun()
-                else:
-                    try:
-                        sc_new,desc_new,unchanged=valid_existing_edit(event,items_manage)
-                        if not unchanged:
-                            write_bulk(admin_dsn,identity,admin_emails,"edit_item",
-                                       group_id=group_id_manage,item_id=row_id,
-                                       sc_no=sc_new,description=desc_new)
-                    except ValueError as exc:
-                        st.session_state[error_key]=str(exc)
-                        st.session_state[revision_key]+=1
-                        st.rerun()
-                    except (psycopg.Error,PermissionError,RuntimeError) as exc:
-                        st.session_state[error_key]=f"No se pudo guardar: {type(exc).__name__}"
-                        st.session_state[revision_key]+=1
-                        st.rerun()
+                error_key=f"manage_grid_error_{group_id_manage}"
+                if st.session_state.get(error_key):
+                    st.error(st.session_state.pop(error_key))
+                st.markdown("**SC del grupo**")
+                grid_result=AgGrid(
+                    rows,gridOptions=grid_options,
+                    height=min(450,40+max(1,len(rows))*32),
+                    theme="streamlit",allow_unsafe_jscode=True,
+                    enable_enterprise_modules=False,
+                    data_return_mode=DataReturnMode.CUSTOM,
+                    custom_jscode_for_grid_return=collect_event,
+                    should_grid_return=should_return,
+                    update_on=["cellValueChanged","cellClicked"],
+                    key=f"manage_grid_{group_id_manage}_{st.session_state[revision_key]}",
+                    show_toolbar=False,show_search=False,show_download_button=False,
+                    server_sync_strategy="server_wins",
+                    custom_css={
+                        ".ag-root-wrapper":{"borderRadius":"0px !important"},
+                        ".ag-cell":{"borderRadius":"0px !important","paddingTop":"0px","paddingBottom":"0px"},
+                        ".ag-row":{"borderBottom":"1px solid var(--ag-border-color)"},
+                    },
+                )
+                event=parse_manage_event(grid_result.raw_data if hasattr(grid_result,"raw_data") else None)
+                if event:
+                    row_id=event["id"]
+                    if event["type"]=="delete":
+                        if row_id < 0:
+                            st.session_state[draft_key].pop(row_id,None)
+                            st.session_state[revision_key]+=1
+                            st.rerun(scope="fragment")
+                        matched=items_manage.loc[items_manage["id"]==row_id]
+                        if len(matched)==1:
+                            _confirm_remove_item(row_id,str(matched.iloc[0]["sc_no"]))
+                    elif row_id < 0:
+                        draft=st.session_state[draft_key].get(row_id)
+                        if draft is not None:
+                            draft,complete=apply_draft_edit(draft,event)
+                            st.session_state[draft_key][row_id]=draft
+                            if complete:
+                                try:
+                                    write_bulk(admin_dsn,identity,admin_emails,"insert_item",
+                                               group_id=group_id_manage,sc_no=draft["sc_no"],
+                                               description=draft["context_description"])
+                                except ValueError as exc:
+                                    st.error(str(exc))
+                                except (psycopg.Error,PermissionError,RuntimeError) as exc:
+                                    st.error(f"No se pudo añadir la SC: {type(exc).__name__}")
+                                else:
+                                    st.session_state[draft_key].pop(row_id,None)
+                                    _refresh_manage()
+                                    st.rerun(scope="fragment")
                     else:
-                        if not unchanged:
-                            _refresh_manage()
-                            st.rerun()
+                        try:
+                            sc_new,desc_new,unchanged=valid_existing_edit(event,items_manage)
+                            if not unchanged:
+                                write_bulk(admin_dsn,identity,admin_emails,"edit_item",
+                                           group_id=group_id_manage,item_id=row_id,
+                                           sc_no=sc_new,description=desc_new)
+                        except ValueError as exc:
+                            st.session_state[error_key]=str(exc)
+                            st.session_state[revision_key]+=1
+                            st.rerun(scope="fragment")
+                        except (psycopg.Error,PermissionError,RuntimeError) as exc:
+                            st.session_state[error_key]=f"No se pudo guardar: {type(exc).__name__}"
+                            st.session_state[revision_key]+=1
+                            st.rerun(scope="fragment")
+                        else:
+                            if not unchanged:
+                                _refresh_manage()
+                                st.rerun(scope="fragment")
 
-            if st.button("Añadir nueva SC",icon=":material/add:",
-                         key=f"manage_grid_add_{group_id_manage}"):
-                draft_id=-int(st.session_state.get("manage_grid_counter",0)+1)
-                st.session_state["manage_grid_counter"]=-draft_id
-                st.session_state[draft_key][draft_id]={"sc_no":"","context_description":""}
-                st.session_state[revision_key]+=1
-                st.rerun()
+                if st.button("Añadir nueva SC",icon=":material/add:",
+                             key=f"manage_grid_add_{group_id_manage}"):
+                    draft_id=-int(st.session_state.get("manage_grid_counter",0)+1)
+                    st.session_state["manage_grid_counter"]=-draft_id
+                    st.session_state[draft_key][draft_id]={"sc_no":"","context_description":""}
+                    st.session_state[revision_key]+=1
+                    st.rerun(scope="fragment")
+
+            render_manage_grid()
 
             with st.expander("Modificar grupo"):
                 with st.form(f"bulk_edit_group_{group_id_manage}"):
@@ -571,7 +592,8 @@ with tab4:
                             write_bulk(admin_dsn,identity,admin_emails,"edit_group",
                                        group_id=group_id_manage,name=updated_name,
                                        description=updated_description)
-                            query.clear()
+                            group_catalogue.clear()
+                            group_items.clear()
                             st.session_state.pop("bulk_result",None)
                             st.rerun()
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
@@ -585,7 +607,8 @@ with tab4:
                         try:
                             write_bulk(admin_dsn,identity,admin_emails,"remove_group",
                                        group_id=group_id_manage)
-                            query.clear()
+                            group_catalogue.clear()
+                            group_items.clear()
                             st.session_state.pop("bulk_result",None)
                             st.rerun()
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
