@@ -102,3 +102,12 @@ def test_symbol_icons_are_distinct_and_unknowns_are_safe():
     assert all(icon.startswith("data:image/svg+xml;utf8,") for icon in icons)
     assert all("background" not in icon for icon in icons)
     assert status_icon("not a known state") is None
+
+
+def test_material_and_approval_icons_use_requested_orange_and_ochre():
+    from urllib.parse import unquote
+    from src.status_icons import status_icon
+    orange=unquote(status_icon("Material sin recibir"))
+    ochre=unquote(status_icon("Pendiente aprobación"))
+    assert 'fill="#EA580C"' in orange
+    assert 'fill="#CA8A04"' in ochre
