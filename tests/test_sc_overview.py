@@ -51,6 +51,21 @@ def test_styles_pastel_rows_and_overdue_date_in_red_bold():
     assert "#FEE2E2" in third[1] and "font-weight" not in third[1]
 
 
+def test_overdue_plan_is_unhighlighted_for_every_other_state():
+    today=date(2026,11,7)
+    for state in ("Completado", "Pendiente pedido", "Pendiente aprobación",
+                  "Parcialmente aprobadas", "SC anulada", "Pendiente conciliación"):
+        row=pd.Series({"Proyecto":"P", "fecha_plan":"06/11/2026", "estado":state})
+        styles=overview_row_style(row,today)
+        assert all("font-weight: bold" not in style for style in styles)
+        assert all("#B91C1C" not in style for style in styles)
+    row=pd.Series({"Proyecto":"P", "fecha_plan":"06/11/2026",
+                   "estado":"Material sin recibir"})
+    styles=overview_row_style(row,today)
+    assert "color: #B91C1C" in styles[1]
+    assert "font-weight: bold" in styles[1]
+
+
 def test_unknown_states_and_invalid_dates_are_safe():
     frame=pd.DataFrame([
         {"estado":"Pendiente conciliación","fecha_plan":"—"},
