@@ -23,11 +23,12 @@ def test_exact_columns_in_requested_order_and_same_row_index():
     ],index=[11,16])
     view=overview_display(source)
     assert tuple(view.columns)==DISPLAY_COLUMNS
+    assert DISPLAY_COLUMNS[6:10] == ("Sol","Ped","Rec","Apr")
     assert list(view.index)==[11,16]
     assert view["SC/Pos"].tolist()==["00071/5","00071/20"]
     assert view["PO/Pos"].tolist()==["00321/8, 00322/1","—"]
     assert view["fecha_plan"].tolist()==["06/11/2026","—"]
-    assert view.loc[11,"recibido"]==Decimal("3")
+    assert view.loc[11,"Rec"]==Decimal("3")
     assert view.loc[16,"estado"]=="Pendiente pedido"
     assert all(col not in view for col in ("company","coverage_pct","workflow_issue"))
 
