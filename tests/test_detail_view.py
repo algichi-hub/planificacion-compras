@@ -36,10 +36,9 @@ def test_vertical_trace_groups_two_receipts_and_order_without_receipt():
          "cantidad_aprobada":None,"estado_recepcion":None,"estado_vinculo":"verified"},
     ])
     view=transpose_trace(original,"Pendiente aprobación")
-    assert list(view.columns)==[" ","Campo","Valor"]
-    assert view.iloc[0]["Campo"]==""
+    assert list(view.columns)==["Campo","Valor"]
+    assert view.iloc[0]["Campo"]=="Estado SC"
     assert view.iloc[0]["Valor"]=="Pendiente aprobación"
-    assert view.iloc[0][" "].startswith("data:image/svg+xml;utf8,")
     assert view.loc[view.Campo=="Pedido/pos","Valor"].tolist()==["761258/1","761258/2"]
     assert view.loc[view.Campo=="Cantidad pedida","Valor"].tolist()==["4","24"]
     receptions=receptions_table(original)
@@ -82,14 +81,14 @@ def test_no_reception_yields_only_po_fields():
                          "cantidad_aprobada":None,"cantidad_entregada":None}])
     view=transpose_trace(frame,"Material sin recibir")
     assert view.iloc[0]["Valor"]=="Material sin recibir"
-    assert view.iloc[0]["Campo"]==""
+    assert view.iloc[0]["Campo"]=="Estado SC"
     assert not view.Campo.str.startswith("Recepción").any()
     assert receptions_table(frame).empty
 
 
 def test_empty_trace_is_two_column_dataframe():
     result=transpose_trace(pd.DataFrame(columns=["pedido","parte_recepcion"]))
-    assert list(result.columns)==[" ","Campo","Valor"]
+    assert list(result.columns)==["Campo","Valor"]
     assert result.empty
 
 
@@ -108,16 +107,15 @@ def test_vertical_supplementary_records_preserve_each_incident():
     assert view.loc[view.Campo=="Categoria","Valor"].tolist()==["Falta Documentación","Pendiente Aprobación"]
 
 
-def test_detail_status_row_is_unlabeled_and_uncolored():
+def test_detail_status_row_has_text_label_and_no_background():
     from src.status_icons import STATUS_SYMBOLS
     for state in STATUS_SYMBOLS:
         view=transpose_trace(pd.DataFrame(columns=["pedido","parte_recepcion"]), state)
-        assert list(view.columns)==[" ","Campo","Valor"]
-        assert view.iloc[0]["Campo"]==""
+        assert list(view.columns)==["Campo","Valor"]
+        assert view.iloc[0]["Campo"]=="Estado SC"
         assert view.iloc[0]["Valor"]==state
-        assert view.iloc[0][" "].startswith("data:image/svg+xml;utf8,")
         style=detail_row_style(view.iloc[0],date(2026,11,6),state)
-        assert style==["","",""]
+        assert style==["",""]
 
 
 def test_planned_date_text_only_semantic_colors_on_boundaries():
@@ -194,3 +192,12 @@ def test_main_sc_table_retains_original_selection_and_uses_new_display():
     assert 'overview_row_style,axis=1,today=madrid_today' in app
     assert "min(p.planned_date) AS planned_date" in app
     assert "string_agg(l.po_no || '/' || l.po_pos" in app
+
+
+def test_sc_detail_native_dataframe_has_no_icon_column():
+    from pathlib import Path
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    details=app.split("detail=transpose_trace(",1)[1].split("st.markdown(\"#### Recepciones",1)[0]
+    assert '"Campo": st.column_config.TextColumn' in details
+    assert '"Valor": st.column_config.TextColumn' in details
+    assert 'ImageColumn' not in details
