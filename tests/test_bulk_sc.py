@@ -64,4 +64,4 @@ def test_only_three_tabs_and_admin_gate_before_mutation():
     assert 'with st.expander("Crear grupo Bulk SC"):' in app
     assert 'if admin:' in app
     assert "write_bulk(admin_dsn,identity,admin_emails" in app
-    assert "st.login()" in app and "st.logout()" in app
+    assert 'st.login("google")' in app and "st.logout()" in app
