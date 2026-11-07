@@ -89,8 +89,7 @@ def receptions_table(trace):
                 f"{display_value(receipt)} "
                 f"({display_value(record.get('fecha_recepcion'))}, "
                 f"Re: {_compact_quantity(record.get('cantidad_recibida', record.get('cantidad_entregada')) if not pd.isna(record.get('cantidad_recibida')) else record.get('cantidad_entregada'))}, "
-                f"Ap: {_compact_quantity(record.get('cantidad_aprobada'))}, "
-                f"En: {_compact_quantity(record.get('cantidad_entregada'))})"
+                f"Ap: {_compact_quantity(record.get('cantidad_aprobada'))})"
             ),
         })
     return pd.DataFrame(rows, columns=["Campo", "Valor"])
