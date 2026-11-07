@@ -92,7 +92,7 @@ def overview_column_config():
 
 def render_sc_detail(line, sid, context):
     """Read-only SC detail shared by individual and grouped views."""
-    st.subheader(f"Detalle SC {line['sc_no']} / posición {line['sc_pos']}")
+    st.subheader(f"Detalle SC {line['sc_no']} / {line['sc_pos']}")
     widget_prefix=f"{context}_{sid}_{line['company']}_{line['sc_no']}_{line['sc_pos']}"
     trace=query("""SELECT l.po_no AS pedido,l.po_pos AS posicion_pedido,
            p.article AS articulo_pedido,p.vendor AS proveedor,
@@ -129,7 +129,7 @@ def render_sc_detail(line, sid, context):
             mime="text/csv",
             key=f"{widget_prefix}_download_detail",
         )
-    st.markdown("#### Recepciones asociadas a esta posición SC")
+    st.markdown("#### Recepciones")
     receptions=receptions_table(trace)
     if receptions.empty:
         st.caption("Sin recepciones registradas para los pedidos vinculados.")
@@ -148,7 +148,7 @@ def render_sc_detail(line, sid, context):
             key=f"{widget_prefix}_download_receptions",
         )
     # REAC is keyed to the selected SC position; it is not an operational state.
-    st.markdown("#### REAC asociados a esta posición SC")
+    st.markdown("#### REAC")
     reac_detail=query("""SELECT reac_no AS referencia_reac,
            reac_article AS articulo_reac,po_no AS pedido,
            po_pos AS posicion_pedido
@@ -168,7 +168,7 @@ def render_sc_detail(line, sid, context):
     
     # INC has no company/SC identifier: link conservatively by PO/position
     # and disclose the article match instead of asserting exact SC ownership.
-    st.markdown("#### Incidencias asociadas a los pedidos de esta posición SC")
+    st.markdown("#### Incidencias")
     inc_detail=query("""SELECT DISTINCT i.source_line AS fila_origen_inc,
            l.po_no AS pedido,l.po_pos AS posicion_pedido,
            i.record_no AS numero_incidencia,i.sequence_no AS secuencia,
