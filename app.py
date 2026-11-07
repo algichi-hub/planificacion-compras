@@ -390,9 +390,153 @@ with tab4:
             items_manage=query("""SELECT id,sc_no,context_description
                                   FROM planning.bulk_sc_items
                                   WHERE group_id=%s ORDER BY sc_no""",(group_id_manage,))
-            st.dataframe(items_manage[["sc_no","context_description"]].rename(columns={
-                "sc_no":"SC","context_description":"Descripción contextual"
-            }),hide_index=True,use_container_width=True)
+            st.caption("Edita directamente la SC o la descripción y sal de la celda para guardar. "
+                       "Las altas se guardan cuando ambos campos están completos.")
+            st.markdown("""
+                <style>
+                [class*="st-key-manage_delete_"] button {
+                    color: #B91C1C !important;
+                    border: 1px solid #B91C1C !important;
+                    background: transparent !important;
+                }
+                [class*="st-key-manage_delete_"] button:hover {
+                    background: #FEF2F2 !important;
+                }
+                </style>
+            """, unsafe_allow_html=True)
+
+            def _invalidate_group_report():
+                query.clear()
+                st.session_state.pop("bulk_result", None)
+
+            def _save_existing_item(item_id, original_sc, original_description):
+                key_sc=f"manage_sc_{group_id_manage}_{item_id}"
+                key_desc=f"manage_desc_{group_id_manage}_{item_id}"
+                message_key=f"manage_status_{group_id_manage}_{item_id}"
+                sc_value=st.session_state[key_sc]
+                desc_value=st.session_state[key_desc]
+                if sc_value == original_sc and desc_value == original_description:
+                    st.session_state.pop(message_key, None)
+                    return
+                try:
+                    write_bulk(admin_dsn,identity,admin_emails,"edit_item",
+                               group_id=group_id_manage,item_id=item_id,
+                               sc_no=sc_value,description=desc_value)
+                except ValueError as exc:
+                    st.session_state[message_key]=str(exc)
+                except (psycopg.Error, PermissionError, RuntimeError):
+                    st.session_state[message_key]="Error de guardado. Revisa la conexión y vuelve a editar la celda."
+                else:
+                    _invalidate_group_report()
+                    st.session_state[message_key]="Guardado"
+
+            draft_key=f"manage_drafts_{group_id_manage}"
+            st.session_state.setdefault(draft_key, [])
+
+            def _add_blank_sc():
+                counter=int(st.session_state.get("manage_draft_counter",0))+1
+                st.session_state["manage_draft_counter"]=counter
+                st.session_state[draft_key].append(counter)
+
+            def _save_new_item(draft_id):
+                key_sc=f"manage_new_sc_{group_id_manage}_{draft_id}"
+                key_desc=f"manage_new_desc_{group_id_manage}_{draft_id}"
+                message_key=f"manage_new_status_{group_id_manage}_{draft_id}"
+                sc_value=st.session_state[key_sc].strip()
+                desc_value=st.session_state[key_desc].strip()
+                if not sc_value or not desc_value:
+                    st.session_state.pop(message_key,None)
+                    return  # Incomplete drafts must never be written to Neon.
+                try:
+                    write_bulk(admin_dsn,identity,admin_emails,"insert_item",
+                               group_id=group_id_manage,sc_no=sc_value,
+                               description=desc_value)
+                except ValueError as exc:
+                    st.session_state[message_key]=str(exc)
+                except (psycopg.Error, PermissionError, RuntimeError):
+                    st.session_state[message_key]="Error de guardado. Revisa la conexión e inténtalo de nuevo."
+                else:
+                    st.session_state[draft_key].remove(draft_id)
+                    st.session_state.pop(message_key,None)
+                    _invalidate_group_report()
+
+            @st.dialog("Confirmar borrado")
+            def _confirm_remove_item(item_id, sc_number):
+                st.write(f"¿Borrar la SC **{sc_number}** de este grupo?")
+                st.caption("La eliminación no modifica los datos originales del ERP.")
+                cancel_col, confirm_col=st.columns(2)
+                with cancel_col:
+                    if st.button("Cancelar",key=f"manage_cancel_{item_id}",use_container_width=True):
+                        st.rerun()
+                with confirm_col:
+                    if st.button("Confirmar borrado",type="primary",
+                                 key=f"manage_confirm_{item_id}",use_container_width=True):
+                        try:
+                            write_bulk(admin_dsn,identity,admin_emails,"remove_item",
+                                       group_id=group_id_manage,item_id=item_id)
+                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                            st.error(f"No se pudo borrar la SC: {type(exc).__name__}")
+                        else:
+                            _invalidate_group_report()
+                            for prefix in ("manage_sc_","manage_desc_","manage_status_"):
+                                st.session_state.pop(f"{prefix}{group_id_manage}_{item_id}",None)
+                            st.rerun()
+
+            st.markdown("**SC del grupo**")
+            h_sc,h_desc,h_action=st.columns([2,5,1.35],vertical_alignment="center")
+            h_sc.caption("SC")
+            h_desc.caption("Descripción contextual")
+            h_action.caption("Acción")
+            for item in items_manage.itertuples(index=False):
+                item_id=int(item.id)
+                sc_before=str(item.sc_no)
+                desc_before=str(item.context_description)
+                sc_key=f"manage_sc_{group_id_manage}_{item_id}"
+                desc_key=f"manage_desc_{group_id_manage}_{item_id}"
+                st.session_state.setdefault(sc_key,sc_before)
+                st.session_state.setdefault(desc_key,desc_before)
+                c_sc,c_desc,c_action=st.columns([2,5,1.35],vertical_alignment="bottom")
+                with c_sc:
+                    st.text_input("SC",key=sc_key,max_chars=40,
+                                  label_visibility="collapsed",
+                                  on_change=_save_existing_item,
+                                  args=(item_id,sc_before,desc_before))
+                with c_desc:
+                    st.text_input("Descripción contextual",key=desc_key,max_chars=500,
+                                  label_visibility="collapsed",
+                                  on_change=_save_existing_item,
+                                  args=(item_id,sc_before,desc_before))
+                with c_action:
+                    if st.button("Borrar",key=f"manage_delete_{group_id_manage}_{item_id}",
+                                 use_container_width=True):
+                        _confirm_remove_item(item_id,sc_before)
+                status=st.session_state.get(f"manage_status_{group_id_manage}_{item_id}")
+                if status and status != "Guardado":
+                    st.error(f"SC {sc_before}: {status}")
+                elif status:
+                    st.caption(f"SC {sc_before}: ✓ Guardado")
+            for draft_id in list(st.session_state[draft_key]):
+                sc_key=f"manage_new_sc_{group_id_manage}_{draft_id}"
+                desc_key=f"manage_new_desc_{group_id_manage}_{draft_id}"
+                d_sc,d_desc,d_action=st.columns([2,5,1.35],vertical_alignment="bottom")
+                with d_sc:
+                    st.text_input("Nueva SC",key=sc_key,max_chars=40,
+                                  label_visibility="collapsed",placeholder="Número SC",
+                                  on_change=_save_new_item,args=(draft_id,))
+                with d_desc:
+                    st.text_input("Nueva descripción",key=desc_key,max_chars=500,
+                                  label_visibility="collapsed",placeholder="Descripción contextual",
+                                  on_change=_save_new_item,args=(draft_id,))
+                with d_action:
+                    if st.button("Cancelar",key=f"manage_cancel_draft_{group_id_manage}_{draft_id}",
+                                 use_container_width=True):
+                        st.session_state[draft_key].remove(draft_id)
+                        st.rerun()
+                status=st.session_state.get(f"manage_new_status_{group_id_manage}_{draft_id}")
+                if status:
+                    st.error(f"Nueva SC: {status}")
+            st.button("Añadir nueva SC",icon=":material/add:",on_click=_add_blank_sc,
+                      key=f"manage_add_row_{group_id_manage}")
 
             with st.expander("Modificar grupo"):
                 with st.form(f"bulk_edit_group_{group_id_manage}"):
@@ -425,53 +569,3 @@ with tab4:
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                             st.error(f"No se pudo eliminar el grupo: {type(exc).__name__}")
 
-            with st.expander("Añadir o actualizar SC"):
-                with st.form(f"bulk_add_item_{group_id_manage}"):
-                    sc_entry=st.text_input("Número SC",max_chars=40)
-                    context_entry=st.text_input("Descripción contextual",max_chars=500)
-                    if st.form_submit_button("Guardar SC"):
-                        try:
-                            write_bulk(admin_dsn,identity,admin_emails,"add_item",
-                                       group_id=group_id_manage,sc_no=sc_entry,
-                                       description=context_entry)
-                            query.clear()
-                            st.session_state.pop("bulk_result",None)
-                            st.rerun()
-                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                            st.error(f"No se pudo guardar la SC: {type(exc).__name__}")
-
-            if not items_manage.empty:
-                with st.expander("Editar o retirar una SC"):
-                    item_id=int(st.selectbox(
-                        "Referencia",items_manage["id"].tolist(),key="manage_item_select",
-                        format_func=lambda x:items_manage.loc[items_manage.id==x,"sc_no"].iloc[0],
-                    ))
-                    selected_item=items_manage.loc[items_manage.id==item_id].iloc[0]
-                    with st.form(f"bulk_edit_{item_id}"):
-                        revised_sc=st.text_input(
-                            "Número SC",value=str(selected_item["sc_no"]),max_chars=40
-                        )
-                        revised_description=st.text_input(
-                            "Descripción",value=str(selected_item["context_description"]),max_chars=500
-                        )
-                        if st.form_submit_button("Guardar componente"):
-                            try:
-                                write_bulk(admin_dsn,identity,admin_emails,"edit_item",
-                                           group_id=group_id_manage,item_id=item_id,
-                                           sc_no=revised_sc,description=revised_description)
-                                query.clear()
-                                st.session_state.pop("bulk_result",None)
-                                st.rerun()
-                            except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                                st.error(f"No se pudo modificar: {type(exc).__name__}")
-                    with st.form(f"bulk_remove_{item_id}"):
-                        confirmed=st.checkbox("Confirmar retirada de esta SC del grupo")
-                        if st.form_submit_button("Retirar SC") and confirmed:
-                            try:
-                                write_bulk(admin_dsn,identity,admin_emails,"remove_item",
-                                           group_id=group_id_manage,item_id=item_id)
-                                query.clear()
-                                st.session_state.pop("bulk_result",None)
-                                st.rerun()
-                            except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                                st.error(f"No se pudo retirar: {type(exc).__name__}")
