@@ -51,14 +51,14 @@ def overview_display(source):
 
 
 def overview_row_style(row, today):
-    """Pastel operational state for full row, overdue plan in red bold only."""
+    """Pastel state for every row; red overdue date only for unreceived material."""
     background = STATE_COLORS.get(row.get("estado"))
     styles = [
         f"background-color: {background}; color: #111827"
         if background else ""
     ] * len(row)
     planned = row.get("fecha_plan")
-    if isinstance(planned, str) and planned != "—":
+    if row.get("estado") == "Material sin recibir" and isinstance(planned, str) and planned != "—":
         try:
             planned_date = datetime.strptime(planned, "%d/%m/%Y").date()
         except ValueError:
