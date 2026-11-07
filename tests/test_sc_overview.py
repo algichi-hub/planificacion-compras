@@ -144,3 +144,25 @@ def test_exact_requested_google_material_symbols_for_each_state():
         assert f'<path d="{PATHS[glyph]}"/>' in svg
         assert 'viewBox="-206 -1166 1372 1372"' in svg
     assert STATUS_SYMBOLS["no_approved_coverage"][0]=="search"
+
+
+def test_planned_date_semaphore_on_main_and_group_overview():
+    from datetime import date, timedelta
+    import pandas as pd
+    today=date(2026,11,7)
+    for delta,color in [
+        (-1,"#B91C1C"), (0,"#CA8A04"), (1,"#CA8A04"),
+        (7,"#CA8A04"), (8,"#15803D"), (30,"#15803D"),
+    ]:
+        planned=(today+timedelta(days=delta)).strftime("%d/%m/%Y")
+        row=pd.Series({"Proyecto":"P","fecha_plan":planned,"estado":"Material sin recibir"})
+        style=overview_row_style(row,today)
+        assert f"color: {color}" in style[1]
+        assert "font-weight: bold" in style[1]
+        assert all("background" not in item for item in style)
+        for state in ("Completado","Pendiente pedido","Pendiente aprobación",
+                      "Parcialmente aprobadas","SC anulada","Pendiente conciliación",
+                      "No encontrada"):
+            other=row.copy()
+            other["estado"]=state
+            assert overview_row_style(other,today)==["","",""]
