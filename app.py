@@ -424,14 +424,17 @@ with tab4:
                     ))
                     selected_item=items_manage.loc[items_manage.id==item_id].iloc[0]
                     with st.form(f"bulk_edit_{item_id}"):
+                        revised_sc=st.text_input(
+                            "Número SC",value=str(selected_item["sc_no"]),max_chars=40
+                        )
                         revised_description=st.text_input(
                             "Descripción",value=str(selected_item["context_description"]),max_chars=500
                         )
-                        if st.form_submit_button("Actualizar descripción"):
+                        if st.form_submit_button("Guardar componente"):
                             try:
                                 write_bulk(admin_dsn,identity,admin_emails,"edit_item",
                                            group_id=group_id_manage,item_id=item_id,
-                                           description=revised_description)
+                                           sc_no=revised_sc,description=revised_description)
                                 query.clear()
                                 st.session_state.pop("bulk_result",None)
                                 st.rerun()
