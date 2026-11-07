@@ -398,12 +398,28 @@ with tab4:
                 .st-key-manage_sc_grid [data-testid="stVerticalBlock"] {
                     gap: 1px !important;
                 }
+                /* Fixed 3-column grid even on narrow screens: X | SC | description. */
                 .st-key-manage_sc_grid [data-testid="stHorizontalBlock"] {
+                    display: grid !important;
+                    grid-template-columns: 38px minmax(100px, 2fr) minmax(140px, 5fr) !important;
                     gap: 1px !important;
                     align-items: center !important;
+                    min-width: 0 !important;
+                }
+                .st-key-manage_sc_grid [data-testid="stColumn"] {
+                    width: 100% !important;
+                    min-width: 0 !important;
+                    flex: none !important;
                 }
                 .st-key-manage_sc_grid [data-testid="stTextInput"] {
                     margin: 0 !important;
+                }
+                /* BaseWeb draws the visible rounded border on a wrapper, not on input. */
+                .st-key-manage_sc_grid [data-testid="stTextInput"] [data-baseweb="input"],
+                .st-key-manage_sc_grid [data-testid="stTextInput"] [data-baseweb="base-input"],
+                .st-key-manage_sc_grid [data-testid="stTextInput"] [data-baseweb="input"] > div,
+                .st-key-manage_sc_grid [data-testid="stTextInput"] input {
+                    border-radius: 0 !important;
                 }
                 .st-key-manage_sc_grid [data-testid="stTextInput"] input {
                     min-height: 34px !important;
@@ -509,10 +525,10 @@ with tab4:
 
             st.markdown("**SC del grupo**")
             with st.container(key="manage_sc_grid"):
-                h_sc,h_desc,h_action=st.columns([2,5,1.35],gap=None,vertical_alignment="center")
+                h_action,h_sc,h_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")
+                h_action.caption(" ")
                 h_sc.caption("SC")
                 h_desc.caption("Descripción contextual")
-                h_action.caption("Acción")
                 for item in items_manage.itertuples(index=False):
                     item_id=int(item.id)
                     sc_before=str(item.sc_no)
@@ -521,7 +537,11 @@ with tab4:
                     desc_key=f"manage_desc_{group_id_manage}_{item_id}"
                     st.session_state.setdefault(sc_key,sc_before)
                     st.session_state.setdefault(desc_key,desc_before)
-                    c_sc,c_desc,c_action=st.columns([2,5,1.35],gap=None,vertical_alignment="center")
+                    c_action,c_sc,c_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")
+                    with c_action:
+                        if st.button("X",help="Borrar esta SC del grupo",key=f"manage_delete_{group_id_manage}_{item_id}",
+                                     use_container_width=True):
+                            _confirm_remove_item(item_id,sc_before)
                     with c_sc:
                         st.text_input("SC",key=sc_key,max_chars=40,
                                       label_visibility="collapsed",
@@ -532,10 +552,6 @@ with tab4:
                                       label_visibility="collapsed",
                                       on_change=_save_existing_item,
                                       args=(item_id,sc_before,desc_before))
-                    with c_action:
-                        if st.button("Borrar",key=f"manage_delete_{group_id_manage}_{item_id}",
-                                     use_container_width=True):
-                            _confirm_remove_item(item_id,sc_before)
                     status=st.session_state.get(f"manage_status_{group_id_manage}_{item_id}")
                     if status and status != "Guardado":
                         st.error(f"SC {sc_before}: {status}")
@@ -544,7 +560,12 @@ with tab4:
                 for draft_id in list(st.session_state[draft_key]):
                     sc_key=f"manage_new_sc_{group_id_manage}_{draft_id}"
                     desc_key=f"manage_new_desc_{group_id_manage}_{draft_id}"
-                    d_sc,d_desc,d_action=st.columns([2,5,1.35],gap=None,vertical_alignment="center")
+                    d_action,d_sc,d_desc=st.columns([0.5,2,5],gap=None,vertical_alignment="center")
+                    with d_action:
+                        if st.button("X",help="Descartar fila nueva",key=f"manage_cancel_draft_{group_id_manage}_{draft_id}",
+                                     use_container_width=True):
+                            st.session_state[draft_key].remove(draft_id)
+                            st.rerun()
                     with d_sc:
                         st.text_input("Nueva SC",key=sc_key,max_chars=40,
                                       label_visibility="collapsed",placeholder="Número SC",
@@ -553,11 +574,6 @@ with tab4:
                         st.text_input("Nueva descripción",key=desc_key,max_chars=500,
                                       label_visibility="collapsed",placeholder="Descripción contextual",
                                       on_change=_save_new_item,args=(draft_id,))
-                    with d_action:
-                        if st.button("Cancelar",key=f"manage_cancel_draft_{group_id_manage}_{draft_id}",
-                                     use_container_width=True):
-                            st.session_state[draft_key].remove(draft_id)
-                            st.rerun()
                     status=st.session_state.get(f"manage_new_status_{group_id_manage}_{draft_id}")
                     if status:
                         st.error(f"Nueva SC: {status}")
