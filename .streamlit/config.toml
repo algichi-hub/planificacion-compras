@@ -1,9 +1,39 @@
-[theme]
-base = "light"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F8FAFC"
-primaryColor = "#2563EB"
-textColor = "#111827"
 [server]
 headless = true
 maxUploadSize = 200
+
+[theme]
+base = "light"
+showSidebarBorder = true
+
+[theme.light]
+primaryColor = "#2563EB"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8FAFC"
+textColor = "#111827"
+borderColor = "#E5E7EB"
+dataframeBorderColor = "#E5E7EB"
+dataframeHeaderBackgroundColor = "#F3F4F6"
+dataframeHeaderTextColor = "#111827"
+
+[theme.light.sidebar]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8FAFC"
+textColor = "#111827"
+borderColor = "#E5E7EB"
+
+[theme.dark]
+primaryColor = "#60A5FA"
+backgroundColor = "#0E1117"
+secondaryBackgroundColor = "#161B22"
+textColor = "#FAFAFA"
+borderColor = "#30363D"
+dataframeBorderColor = "#30363D"
+dataframeHeaderBackgroundColor = "#161B22"
+dataframeHeaderTextColor = "#FAFAFA"
+
+[theme.dark.sidebar]
+backgroundColor = "#161B22"
+secondaryBackgroundColor = "#0E1117"
+textColor = "#FAFAFA"
+borderColor = "#30363D"
