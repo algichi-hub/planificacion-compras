@@ -131,11 +131,9 @@ def render_sc_detail(line, sid, context):
                 (sid,line["company"],line["sc_no"],line["sc_pos"]))
     # Fetch original SC rows only for the selected position. Multiple PO allocations
     # are preserved and joined using both PO number and PO position.
-    source_rows=query("""SELECT fields FROM raw.source_rows
-                         WHERE snapshot_id=%s AND source_name='SC_FAS.csv'
-                           AND fields->>'COMPAÑÍA__0'=%s
-                           AND fields->>'SOLICITUD__6'=%s
-                           AND fields->>'POSICIÓN__7'=%s
+    source_rows=query("""SELECT fields FROM planning.v_sc_source_detail
+                         WHERE snapshot_id=%s AND company=%s
+                           AND sc_no=%s AND sc_pos=%s
                          ORDER BY source_line""",
                       (sid,line["company"],line["sc_no"],line["sc_pos"]))
     raw_records=source_rows["fields"].tolist() if not source_rows.empty else []
