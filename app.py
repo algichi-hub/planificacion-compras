@@ -435,15 +435,8 @@ with tab4:
 
             # AG Grid's React wrapper must receive a string, not an HTMLButtonElement.
             # Event handling stays on cellClicked (the click bubbles from the button).
-            delete_renderer=JsCode("""
-                function(params) {
-                    const title = params.data.id < 0 ? 'Descartar nueva fila' : 'Eliminar SC';
-                    return '<button type="button" title="' + title + '" ' +
-                           'style="color:#B91C1C;background:transparent;' +
-                           'border:1px solid #B91C1C;border-radius:0;' +
-                           'padding:0;width:25px;height:25px;cursor:pointer">X</button>';
-                }
-            """)
+            # Plain text avoids DOM/HTML escaping and React #31 in AG Grid cells.
+            # The cell itself receives cellClicked; no custom renderer required.
             collect_event=JsCode("""
                 function({streamlitRerunEventTriggerName,eventData}) {
                     if (!eventData || !eventData.data) return null;
@@ -471,7 +464,8 @@ with tab4:
                 "columnDefs":[
                     {"field":"delete","headerName":"","width":38,"minWidth":38,"maxWidth":38,
                      "pinned":"left","editable":False,"sortable":False,"resizable":False,
-                     "cellRenderer":delete_renderer,"cellStyle":{"paddingLeft":"5px","paddingRight":"0"}},
+                     "cellStyle":{"color":"#B91C1C","fontWeight":"700","textAlign":"center",
+                                  "cursor":"pointer","paddingLeft":"0","paddingRight":"0"}},
                     {"field":"sc_no","headerName":"SC","minWidth":110,"width":170,
                      "editable":True,"cellDataType":"text"},
                     {"field":"context_description","headerName":"Descripción contextual",
