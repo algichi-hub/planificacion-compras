@@ -42,4 +42,4 @@ def test_light_defaults_and_custom_palette_not_global():
 
 def test_streamlit_version_supports_both_theme_variants():
     requirements=(ROOT/"requirements.txt").read_text(encoding="utf-8")
-    assert "streamlit>=1.52,<2" in requirements
+    assert "streamlit[auth]>=1.66,<2" in requirements
