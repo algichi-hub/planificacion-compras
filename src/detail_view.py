@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pandas as pd
 from src.planned_date_style import planned_date_style
+from src.planned_date_style import planned_date_style
 
 
 LABELS = {
@@ -97,11 +98,11 @@ def receptions_table(trace):
 
 
 def detail_row_style(row, today, workflow_state=None):
-    """Color only the planned date, with the same thresholds as the SC overview."""
-    style = ""
+    """Text-only planned-date traffic light; never color table backgrounds."""
     if row.get("Campo") == "Fecha planificada":
         style = planned_date_style(row.get("Valor"), today, workflow_state)
-    return [style] * len(row)
+        return [style] * len(row)
+    return [""] * len(row)
 
 
 def vertical_records(frame, title, labels=None):
