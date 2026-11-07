@@ -4,7 +4,6 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pandas as pd
-from src.status_icons import status_icon
 
 
 LABELS = {
@@ -47,7 +46,7 @@ def transpose_trace(trace, workflow_state=None):
     """General SC/PO detail. Each PO appears once, without receipt rows."""
     rows = []
     if workflow_state is not None and not pd.isna(workflow_state):
-        rows.append({" ": status_icon(workflow_state), "Campo": "", "Valor": display_value(workflow_state)})
+        rows.append({"Campo": "Estado SC", "Valor": display_value(workflow_state)})
     seen_orders = set()
     for _, record in trace.iterrows():
         po = (record.get("pedido"), record.get("posicion_pedido"))
@@ -61,7 +60,7 @@ def transpose_trace(trace, workflow_state=None):
             if name in trace.columns:
                 rows.append({"Campo": LABELS[name],
                              "Valor": display_value(record[name])})
-    return pd.DataFrame(rows, columns=[" ", "Campo", "Valor"])
+    return pd.DataFrame(rows, columns=["Campo", "Valor"])
 
 
 def receptions_table(trace):
