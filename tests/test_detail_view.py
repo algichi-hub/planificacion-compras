@@ -42,9 +42,9 @@ def test_vertical_trace_groups_two_receipts_and_order_without_receipt():
     assert view.loc[view.Campo=="Cantidad pedida","Valor"].tolist()==["4","24"]
     receptions=receptions_table(original)
     assert receptions.loc[receptions.Campo=="Recepción 1","Valor"].tolist()==[
-        "762514 (01/10/2026, Re: 1, Ap: 0, En: 1)"]
+        "762514 (01/10/2026, Re: 1, Ap: 0)"]
     assert receptions.loc[receptions.Campo=="Recepción 2","Valor"].tolist()==[
-        "767054 (05/10/2026, Re: 4, Ap: 0, En: 4)"]
+        "767054 (05/10/2026, Re: 4, Ap: 0)"]
     assert "Movimiento 1" not in view.Campo.tolist()
     assert "Estado recepción" not in view.Campo.tolist()
     assert "Estado vínculo" not in view.Campo.tolist()
@@ -66,9 +66,9 @@ def test_single_and_repeated_receipt_number_are_not_merged():
     ])
     view=receptions_table(frame)
     assert view.loc[view.Campo=="Recepción 1","Valor"].iloc[0]==(
-        "000123 (06/11/2026, Re: 120,5, Ap: 100, En: 120,5)")
+        "000123 (06/11/2026, Re: 120,5, Ap: 100)")
     assert view.loc[view.Campo=="Recepción 2","Valor"].iloc[0]==(
-        "000123 (07/11/2026, Re: 10,25, Ap: 0, En: 10,25)")
+        "000123 (07/11/2026, Re: 10,25, Ap: 0)")
     assert len(view.loc[view.Campo.str.startswith("Recepción")])==2
     assert len(receptions_table(frame.iloc[:1]).loc[
         lambda df: df.Campo.str.startswith("Recepción")])==1
@@ -135,7 +135,7 @@ def test_planned_date_text_only_semantic_colors_on_boundaries():
     assert detail_row_style(pd.Series({"Campo":"Proveedor","Valor":"05/11/2026"}),today)==["",""]
 
 
-def test_received_quantity_uses_delivery_source_when_no_independent_field():
+def test_received_quantity_uses_receipt_source_when_no_independent_field():
     frame=pd.DataFrame([
         {"pedido":"X","posicion_pedido":"1","parte_recepcion":"RX",
          "fecha_recepcion":date(2026,11,6),"cantidad_entregada":Decimal("12"),
@@ -146,9 +146,10 @@ def test_received_quantity_uses_delivery_source_when_no_independent_field():
     ])
     result=receptions_table(frame)
     assert result.loc[result.Campo=="Recepción 1","Valor"].iloc[0] == (
-        "RX (06/11/2026, Re: 12, Ap: 8, En: 12)")
+        "RX (06/11/2026, Re: 12, Ap: 8)")
     assert result.loc[result.Campo=="Recepción 2","Valor"].iloc[0] == (
-        "RY (07/11/2026, Re: 10,5, Ap: 8, En: 12)")
+        "RY (07/11/2026, Re: 10,5, Ap: 8)")
+    assert not result["Valor"].str.contains("En:",regex=False).any()
 
 
 def test_receipts_group_by_po_and_retain_duplicate_numbers():
@@ -166,7 +167,7 @@ def test_receipts_group_by_po_and_retain_duplicate_numbers():
     view=receptions_table(frame)
     assert view.Campo.tolist()==["Pedido/pos","Recepción 1","Recepción 2","Pedido/pos","Recepción 1"]
     assert view.loc[view.Campo=="Pedido/pos","Valor"].tolist()==["A/10","B/20"]
-    assert view.loc[view.Campo=="Recepción 2","Valor"].tolist()==["00001 (02/11/2026, Re: 6, Ap: 4, En: 6)"]
+    assert view.loc[view.Campo=="Recepción 2","Valor"].tolist()==["00001 (02/11/2026, Re: 6, Ap: 4)"]
 
 
 def test_dates_ignored_for_other_sc_workflow_states():
