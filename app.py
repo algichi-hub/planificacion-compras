@@ -455,6 +455,16 @@ with tab4:
                     return null;
                 }
             """)
+            should_return=JsCode("""
+                function({streamlitRerunEventTriggerName,eventData}) {
+                    if (!eventData || !eventData.data) return false;
+                    const col=eventData.column ? eventData.column.getColId() : '';
+                    return (streamlitRerunEventTriggerName === 'cellValueChanged'
+                            && (col === 'sc_no' || col === 'context_description'))
+                           || (streamlitRerunEventTriggerName === 'cellClicked'
+                               && col === 'delete');
+                }
+            """)
             grid_options={
                 "columnDefs":[
                     {"field":"delete","headerName":"","width":38,"minWidth":38,"maxWidth":38,
@@ -483,6 +493,7 @@ with tab4:
                 enable_enterprise_modules=False,
                 data_return_mode=DataReturnMode.CUSTOM,
                 custom_jscode_for_grid_return=collect_event,
+                should_grid_return=should_return,
                 update_on=["cellValueChanged","cellClicked"],
                 key=f"manage_grid_{group_id_manage}_{st.session_state[revision_key]}",
                 show_toolbar=False,show_search=False,show_download_button=False,
@@ -493,8 +504,7 @@ with tab4:
                     ".ag-row":{"borderBottom":"1px solid var(--ag-border-color)"},
                 },
             )
-            event=parse_manage_event(grid_result.get("type") and grid_result.raw_data
-                                    if hasattr(grid_result,"raw_data") else None)
+            event=parse_manage_event(grid_result.raw_data if hasattr(grid_result,"raw_data") else None)
             if event:
                 row_id=event["id"]
                 if event["type"]=="delete":
