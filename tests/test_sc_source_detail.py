@@ -113,10 +113,10 @@ def test_both_sc_tabs_share_new_detail_without_economic_data():
     shared=app.split("def render_sc_detail(line, sid, context):",1)[1].split("with tab1:",1)[0]
     assert 'st.markdown("#### Datos de solicitud")' in shared
     assert 'st.markdown("#### Pedido y planificación")' in shared
-    assert "raw.source_rows" in shared
-    assert "source_name='SC_FAS.csv'" in shared
-    assert '"COMPAÑÍA__0"' not in shared or "COMPAÑÍA__0" in shared
-    assert 'request_detail(line,raw_records)' in shared
+    assert "planning.v_sc_source_detail" in shared
+    assert "raw.source_rows" not in shared
+    assert 'request_detail(request_source,raw_records)' in shared
+    assert "FROM core.sc_lines" in shared
     assert 'planning_detail(trace,raw_records)' in shared
     assert 'export[["Sección","Campo","Valor"]]' in shared
     assert "st.markdown(\"#### Recepciones\")" in shared
@@ -126,3 +126,22 @@ def test_both_sc_tabs_share_new_detail_without_economic_data():
     assert 'render_sc_detail(line, sid, context="group")' in app
     assert '"Precio unitario"' not in shared
     assert '"Importe"' not in shared
+
+def test_projection_migration_exposes_no_economic_fields():
+    from pathlib import Path
+    migration=(Path(__file__).resolve().parents[1]/"migrations/009_sc_source_detail_view.sql").read_text(encoding="utf-8")
+    assert "CREATE OR REPLACE VIEW planning.v_sc_source_detail" in migration
+    assert "GRANT SELECT ON planning.v_sc_source_detail TO compras_reader" in migration
+    assert "ix_sc_source_rows_lookup" in migration
+    for forbidden in ("IMPORTE__", "PRECIO €__", "IMP APROBADO__", "IMP RECIBIDO__", "Nº FACTURA__", "IMPORTE FACTURADO__"):
+        assert forbidden not in migration
+    assert "GRANT SELECT ON raw.source_rows" not in migration
+
+def test_source_detail_query_scoped_to_snapshot_company_sc_and_position():
+    from pathlib import Path
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    shared=app.split("def render_sc_detail(line, sid, context):",1)[1].split("with tab1:",1)[0]
+    assert "WHERE snapshot_id=%s AND company=%s" in shared
+    assert "AND sc_no=%s AND sc_pos=%s" in shared
+    assert '(sid,line["company"],line["sc_no"],line["sc_pos"])' in shared
+    assert "request_source=sc_meta.iloc[0]" in shared
