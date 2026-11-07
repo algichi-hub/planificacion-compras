@@ -98,7 +98,7 @@ def receptions_table(trace):
 
 def detail_row_style(row, today, workflow_state=None):
     """Text-only planned-date traffic light; never color table backgrounds."""
-    if row.get("Campo") == "Fecha planificada":
+    if row.get("Campo") in ("Fecha planificada", "Plan actual"):
         style = planned_date_style(row.get("Valor"), today, workflow_state)
         return [style] * len(row)
     return [""] * len(row)
