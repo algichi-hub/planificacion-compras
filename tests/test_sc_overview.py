@@ -118,7 +118,9 @@ def test_status_icons_are_70_percent_and_native_column_is_pinned():
     from pathlib import Path
     from src.status_icons import status_icon
     svg=unquote(status_icon("Completado"))
-    assert 'width="17" height="17"' in svg
+    # Streamlit scales image columns, so the SVG viewBox—not width—sets glyph size.
+    assert 'viewBox="-206 -1166 1372 1372"' in svg
+    assert 'width="24" height="24"' in svg
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
     assert 'ImageColumn("", width=38, pinned=True' in app
     assert 'selection_mode="single-row"' in app
