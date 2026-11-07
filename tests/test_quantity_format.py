@@ -30,10 +30,10 @@ def test_exact_compact_spanish_display(original, expected):
 
 def test_styler_format_preserves_source_precision_dtype_and_order():
     frame=pd.DataFrame({
-        "solicitado":[Decimal("4.000000"),Decimal("2.250000")],
-        "pedido":[Decimal("0.000000"),Decimal("4.123456")],
-        "recibido":[Decimal("0.000001"),Decimal("123456.000000")],
-        "aprobado":[None,Decimal("1.000000")],
+        "Sol":[Decimal("4.000000"),Decimal("2.250000")],
+        "Ped":[Decimal("0.000000"),Decimal("4.123456")],
+        "Rec":[Decimal("0.000001"),Decimal("123456.000000")],
+        "Apr":[None,Decimal("1.000000")],
         "estado":["Material sin recibir","Completado"],
     },index=[5,9])
     original=frame.copy(deep=True)
@@ -44,12 +44,12 @@ def test_styler_format_preserves_source_precision_dtype_and_order():
     # These are exactly the display functions used by pandas Styler.
     column_position={col: frame.columns.get_loc(col) for col in SC_QUANTITY_COLUMNS}
     expected={
-        (0,"solicitado"):"4",
-        (1,"solicitado"):"2,25",
-        (0,"recibido"):"0,000001",
-        (1,"recibido"):"123456",
-        (1,"pedido"):"4,123456",
-        (0,"aprobado"):"—",
+        (0,"Sol"):"4",
+        (1,"Sol"):"2,25",
+        (0,"Rec"):"0,000001",
+        (1,"Rec"):"123456",
+        (1,"Ped"):"4,123456",
+        (0,"Apr"):"—",
     }
     for (row,column),formatted in expected.items():
         assert styled._display_funcs[(row,column_position[column])](
@@ -59,7 +59,7 @@ def test_styler_format_preserves_source_precision_dtype_and_order():
 
 def test_display_is_compact_without_mutating_receipt_numbers():
     receipt=pd.DataFrame([{
-        "pedido":"000123","posicion_pedido":"07",
+        "Ped":"000123","posicion_pedido":"07",
         "parte_recepcion":"000042",
         "fecha_recepcion":pd.Timestamp("2026-11-06"),
         "cantidad_entregada":Decimal("12.500000"),
@@ -74,9 +74,18 @@ def test_display_is_compact_without_mutating_receipt_numbers():
 
 def test_detail_quantity_fract_preserved():
     trace=pd.DataFrame([{
-        "pedido":"01","posicion_pedido":"1",
+        "Ped":"01","posicion_pedido":"1",
         "cantidad_pedida":Decimal("123.000010"),
         "parte_recepcion":None
     }])
     view=transpose_trace(trace,"Material sin recibir")
     assert view.loc[view.Campo=="Cantidad pedida","Valor"].iloc[0]=="123,00001"
+
+
+def test_overview_uses_compact_width_without_overriding_styler_number_format():
+    from pathlib import Path
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    assert 'name: st.column_config.Column(width="small")' in app
+    assert 'for name in ("Sol", "Ped", "Rec", "Apr")' in app
+    assert 'format_sc_quantities(visible_overview.style)' in app
+    assert 'st.column_config.NumberColumn(width="small")' not in app
