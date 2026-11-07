@@ -191,7 +191,7 @@ with tab2:
                                  column_config={"Campo": st.column_config.TextColumn(),
                                                 "Valor": st.column_config.TextColumn()},
                                  height=min(720,35*(len(receptions)+1)+3))
-                    st.caption("Recepción: número (fecha, Re: recibida, Ap: aprobada, En: entregada). El origen no separa recibido de entregado: Re y En reflejan la misma cantidad de la recepción; no se suman entre sí.")
+                    st.caption("Recepción: número (fecha, Re: cantidad recibida en admisión de entrada, Ap: cantidad aprobada tras el control de calidad). La diferencia Rec − Apr corresponde a unidades que todavía no constan como aprobadas; no implica necesariamente rechazo.")
                     st.download_button(
                         "Exportar recepciones CSV",
                         receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
