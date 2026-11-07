@@ -8,6 +8,7 @@ import psycopg
 import streamlit as st
 from src.detail_view import transpose_trace, receptions_table, detail_row_style, vertical_records
 from src.sc_overview import overview_display, overview_row_style
+from src.group_sc_view import group_overview
 from src.quantity_format import format_sc_quantities
 from src.bulk_sc import is_bulk_admin, write_bulk
 
@@ -65,6 +66,30 @@ has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS N
 workflow_ready=False
 if has_workflow_table:
     workflow_ready=bool(query("SELECT EXISTS(SELECT 1 FROM planning.sc_workflow_status WHERE snapshot_id=%s) AS ready",(sid,)).iloc[0]["ready"])
+# Reuse one SC/PO reconciliation expression in individual and grouped queries.
+po_link_summary="""
+  LEFT JOIN LATERAL (
+      SELECT string_agg(l.po_no || '/' || l.po_pos, ', '
+                        ORDER BY l.po_no,l.po_pos) AS po_positions,
+             min(p.planned_date) AS planned_date
+      FROM core.sc_po_links l
+      JOIN core.po_lines p
+        ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
+           (l.snapshot_id,l.company,l.po_no,l.po_pos)
+      WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
+        AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos
+  ) linked ON true
+"""
+
+def overview_column_config():
+    """Keep the exact same native column configuration in both SC views."""
+    return {
+        **{name: st.column_config.Column(width=None)
+           for name in ("Sol", "Ped", "Rec", "Apr")},
+        " ": st.column_config.ImageColumn("", width=38, pinned=True,
+            help="Estado operativo SC"),
+    }
+
 with tab1:
     if workflow_ready:
         states=query("SELECT workflow_state,count(*) AS n FROM planning.sc_workflow_status WHERE "+where+" GROUP BY workflow_state ORDER BY n DESC",tuple(params))
@@ -94,19 +119,6 @@ with tab2:
         # the user must see every position of the requested SC.
         # One row per SC position; PO/Pos may hold several linked orders.
         # The earliest planned PO date is used as the deadline indicator.
-        po_link_summary="""
-          LEFT JOIN LATERAL (
-              SELECT string_agg(l.po_no || '/' || l.po_pos, ', '
-                                ORDER BY l.po_no,l.po_pos) AS po_positions,
-                     min(p.planned_date) AS planned_date
-              FROM core.sc_po_links l
-              JOIN core.po_lines p
-                ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
-                   (l.snapshot_id,l.company,l.po_no,l.po_pos)
-              WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
-                AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos
-          ) linked ON true
-        """
         if workflow_ready:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
@@ -138,12 +150,7 @@ with tab2:
                 format_sc_quantities(visible_overview.style).apply(
                     overview_row_style,axis=1,today=madrid_today
                 ),use_container_width=True,hide_index=True,
-                column_config={
-                    **{name: st.column_config.Column(width=None)
-                       for name in ("Sol", "Ped", "Rec", "Apr")},
-                    " ": st.column_config.ImageColumn("", width=38, pinned=True,
-                        help="Estado operativo SC"),
-                },
+                column_config=overview_column_config(),
                 on_select="rerun",selection_mode="single-row",
                 key=f"sc_overview_{sid}_{sc_number}",
             )
@@ -288,36 +295,31 @@ with tab3:
                 source_table=("planning.sc_workflow_status" if workflow_ready
                               else "planning.v_sc_coverage")
                 status_column="workflow_state" if workflow_ready else "coverage_state"
-                group_status=query(f"""SELECT sc_no,sc_pos,article,description,project,
-                               requested_qty,ordered_qty,received_qty,approved_qty,
-                               {status_column} AS estado
-                               FROM {source_table}
-                               WHERE snapshot_id=%s AND sc_no=ANY(%s)
-                               ORDER BY sc_no,sc_pos""",(sid,numbers))
-                grouped=items[["sc_no","context_description"]].merge(
-                    group_status,on="sc_no",how="left",sort=False
-                )
+                group_status=query(f"""SELECT s.company,s.sc_no,s.sc_pos,s.article,
+                               s.description,s.project,s.requested_qty,s.ordered_qty,
+                               s.received_qty,s.approved_qty,s.{status_column},
+                               linked.po_positions,linked.planned_date
+                               FROM {source_table} s
+                               """+po_link_summary+"""
+                               WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
+                               ORDER BY s.company,s.sc_no,
+                                   CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
+                                       THEN btrim(s.sc_pos)::numeric END NULLS LAST,
+                                   s.sc_pos""",(sid,numbers))
+                grouped=group_overview(items,group_status)
                 st.session_state["bulk_result"]=(sid,group_id,grouped)
             stored=st.session_state.get("bulk_result")
             if stored and stored[0]==sid and stored[1]==group_id:
-                result=stored[2].copy()
-                if result.empty:
-                    st.info("No hay resultados en este grupo.")
-                else:
-                    result=result.drop(columns=["id"],errors="ignore")
-                    result["SC/Pos"]=result["sc_no"].astype(str)+"/"+result["sc_pos"].fillna("—").astype(str)
-                    result.loc[result["sc_pos"].isna(),"SC/Pos"]=result.loc[result["sc_pos"].isna(),"sc_no"]
-                    result["estado"]=result["estado"].fillna("No encontrada")
-                    st.caption(f"{result['sc_no'].nunique()} SC · {len(result)} posiciones o referencias")
-                    bulk_view=result[["SC/Pos","context_description","project","article",
-                                      "description","requested_qty","ordered_qty",
-                                      "received_qty","approved_qty","estado"]].rename(
-                        columns={"context_description":"Contexto","project":"Proyecto",
-                                 "description":"Descripción ERP","requested_qty":"Sol",
-                                 "ordered_qty":"Ped","received_qty":"Rec",
-                                 "approved_qty":"Apr"})
-                    st.dataframe(format_sc_quantities(bulk_view.style),
-                                 hide_index=True,use_container_width=True)
+                bulk_view=stored[2]
+                st.caption(f"{len(items)} SC · {len(bulk_view)} posiciones o referencias")
+                madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
+                st.dataframe(
+                    format_sc_quantities(bulk_view.style).apply(
+                        overview_row_style,axis=1,today=madrid_today
+                    ),
+                    hide_index=True,use_container_width=True,
+                    column_config=overview_column_config(),
+                )
 
 with tab4:
     st.subheader("Manage")
