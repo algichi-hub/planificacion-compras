@@ -121,7 +121,7 @@ def render_sc_detail(line, sid, context):
             height=min(720,35*(len(detail)+1)+3),
             key=f"{widget_prefix}_detail",
         )
-        st.caption("Solo en estado «Material sin recibir»: fecha planificada vencida en rojo; hasta 7 días naranja; 8–14 días amarillo; más de 14 días verde. Texto en negrita, sin fondo.")
+        st.caption("Solo en estado «Material sin recibir»: fechas vencidas en rojo; entre hoy y los próximos 7 días naturales en amarillo; a más de 7 días en verde. Texto en negrita, sin fondo.")
         st.download_button(
             "Exportar detalle CSV",
             detail.to_csv(index=False,sep=";").encode("utf-8-sig"),
