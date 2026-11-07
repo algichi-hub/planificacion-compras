@@ -77,6 +77,15 @@ def write_bulk(admin_dsn, user, allowed_emails, operation, *, group_id=None,
             "RETURNING id",
             (int(group_id), sc_no, description),
         )
+    elif operation == "insert_item":
+        # Unlike add_item, never replace an existing SC while creating a new row.
+        sc_no = normalize_sc(sc_no)
+        description = normalize_label(description, "Descripción", 500)
+        statement, args = (
+            "INSERT INTO planning.bulk_sc_items (group_id,sc_no,context_description) "
+            "VALUES (%s,%s,%s) ON CONFLICT (group_id,sc_no) DO NOTHING RETURNING id",
+            (int(group_id), sc_no, description),
+        )
     elif operation == "edit_item":
         description = normalize_label(description, "Descripción", 500)
         if sc_no is None:
@@ -105,5 +114,7 @@ def write_bulk(admin_dsn, user, allowed_emails, operation, *, group_id=None,
                 cur.execute(statement, args)
                 row = cur.fetchone()
                 if row is None:
+                    if operation == "insert_item":
+                        raise ValueError("La SC ya existe en este grupo.")
                     raise ValueError("La entrada ya no existe en el grupo.")
                 return row[0]
