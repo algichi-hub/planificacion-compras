@@ -114,3 +114,11 @@ def test_group_writes_authorized_parameterized_and_restricted_to_user_tables(mon
     assert executed[2][1]==(7,)
     assert executed[3][1]==("000421","Componente cambiado",3,7)
     assert all("core." not in sql and "raw." not in sql for sql,_ in executed)
+
+
+def test_group_sc_report_does_not_render_status_counts_summary():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    assert 'st.dataframe(format_sc_quantities(bulk_view.style)' in group_part
+    assert 'counts.rename_axis("Estado")' not in group_part
+    assert 'value_counts()' not in group_part
