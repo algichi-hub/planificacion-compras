@@ -4,6 +4,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pandas as pd
+from src.status_icons import status_icon
 
 
 LABELS = {
@@ -46,7 +47,7 @@ def transpose_trace(trace, workflow_state=None):
     """General SC/PO detail. Each PO appears once, without receipt rows."""
     rows = []
     if workflow_state is not None and not pd.isna(workflow_state):
-        rows.append({"Campo": "Estado SC", "Valor": display_value(workflow_state)})
+        rows.append({" ": status_icon(workflow_state), "Campo": "", "Valor": display_value(workflow_state)})
     seen_orders = set()
     for _, record in trace.iterrows():
         po = (record.get("pedido"), record.get("posicion_pedido"))
@@ -60,7 +61,7 @@ def transpose_trace(trace, workflow_state=None):
             if name in trace.columns:
                 rows.append({"Campo": LABELS[name],
                              "Valor": display_value(record[name])})
-    return pd.DataFrame(rows, columns=["Campo", "Valor"])
+    return pd.DataFrame(rows, columns=[" ", "Campo", "Valor"])
 
 
 def receptions_table(trace):
@@ -96,18 +97,12 @@ def receptions_table(trace):
 
 
 def detail_row_style(row, today, workflow_state=None):
-    """Style SC status and planned dates only for unreceived material, using Madrid local day.
+    """Style planned dates only for unreceived material, using Madrid local day.
 
     Past-due = red, 0..7 days = orange, 8..14 = yellow, >14 = green.
     Planned date styling is text-only (bold, no background).
     """
-    from src.sc_row_styles import STATE_COLORS
-
     campo = row.get("Campo")
-    if campo == "Estado SC":
-        color = STATE_COLORS.get(row.get("Valor"))
-        if color:
-            return [f"background-color: {color}; color: #111827"] * len(row)
     if campo == "Fecha planificada":
         if workflow_state != "Material sin recibir":
             return [""] * len(row)
