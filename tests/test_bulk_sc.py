@@ -69,7 +69,7 @@ def test_separate_group_reporting_and_manage_tab_with_admin_gate():
     assert '"REAC / Incidencias","Calidad de datos"' not in app
     assert "admin=is_bulk_admin(identity,admin_emails) and bool(admin_dsn)" in app
     assert 'with st.expander("Crear grupo"):' in app
-    assert 'if admin:' in app
+    assert 'if not admin:' in manage_part and '    else:\n        with st.expander("Crear grupo"):' in manage_part
     assert "write_bulk(admin_dsn,identity,admin_emails" in app
     assert 'st.login("google")' in app and "st.logout()" in app
 
