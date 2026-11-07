@@ -20,7 +20,7 @@ Por defecto **no hay escrituras habilitadas**.
    ```
    Verificar derechos efectivos y revocar cualquier privilegio heredado no deseado.
    La aplicación no ofrece eliminación de grupos: solo de sus referencias SC.
-3. Registrar una aplicación OIDC (Google, Microsoft u otro proveedor).
+3. Registrar una aplicación OAuth/OIDC **Google Auth Platform** de tipo **Aplicación web**, en https://console.cloud.google.com/auth/clients . En la pantalla Audience, configurar el usuario administrador como **usuario de prueba** mientras la aplicación esté en Testing.
    Configurar la URI de devolución:
    `https://planificacion-compras.streamlit.app/oauth2callback`.
 4. Configurar los secretos de **Streamlit Cloud**, nunca el repositorio.
@@ -32,12 +32,14 @@ Por defecto **no hay escrituras habilitadas**.
    [auth]
    redirect_uri = "https://planificacion-compras.streamlit.app/oauth2callback"
    cookie_secret = "<secreto-aleatorio-largo>"
-   client_id = "<oidc-client-id>"
-   client_secret = "<oidc-client-secret>"
+
+   [auth.google]
+   client_id = "<google-client-id>"
+   client_secret = "<google-client-secret>"
    server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
    ```
    El administrador requiere correo verificado del proveedor OIDC.
-   Solo los correos de `BULK_ADMIN_EMAILS` pueden escribir.
+   Solo los correos de `BULK_ADMIN_EMAILS` pueden escribir. El botón de inicio de sesión utiliza exclusivamente `st.login("google")`. El secreto `cookie_secret` es propio de Streamlit y **no** debe configurarse como secreto en Google Cloud.
 5. Comprobar con una cuenta invitada que puede consultar los grupos pero no
    crear, editar ni eliminar; comprobar el mismo flujo con el administrador.
    Verificar que el rol PostgreSQL no puede modificar tablas ERP.
