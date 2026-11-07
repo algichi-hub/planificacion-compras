@@ -485,6 +485,9 @@ with tab4:
                 "suppressMovableColumns":True,
                 "suppressCellFocus":False,
             }
+            error_key=f"manage_grid_error_{group_id_manage}"
+            if st.session_state.get(error_key):
+                st.error(st.session_state.pop(error_key))
             st.markdown("**SC del grupo**")
             grid_result=AgGrid(
                 rows,gridOptions=grid_options,
@@ -541,11 +544,11 @@ with tab4:
                                        group_id=group_id_manage,item_id=row_id,
                                        sc_no=sc_new,description=desc_new)
                     except ValueError as exc:
-                        st.error(str(exc))
+                        st.session_state[error_key]=str(exc)
                         st.session_state[revision_key]+=1
                         st.rerun()
                     except (psycopg.Error,PermissionError,RuntimeError) as exc:
-                        st.error(f"No se pudo guardar: {type(exc).__name__}")
+                        st.session_state[error_key]=f"No se pudo guardar: {type(exc).__name__}"
                         st.session_state[revision_key]+=1
                         st.rerun()
                     else:
