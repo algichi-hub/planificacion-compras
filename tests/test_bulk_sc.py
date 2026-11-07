@@ -198,13 +198,16 @@ def test_group_sc_reuses_selected_sc_detail_sections():
     assert 'widget_prefix=f"{context}_' in shared
     assert 'key=f"{widget_prefix}_download_detail"' in shared
     assert 'key=f"{widget_prefix}_download_receptions"' in shared
+    assert 'st.subheader(f"Detalle SC {line[\'sc_no\']} / {line[\'sc_pos\']}")' in shared
     for heading in (
-        'Detalle SC',
-        'Recepciones asociadas a esta posición SC',
-        'REAC asociados a esta posición SC',
-        'Incidencias asociadas a los pedidos de esta posición SC',
+        'st.markdown("#### Recepciones")',
+        'st.markdown("#### REAC")',
+        'st.markdown("#### Incidencias")',
     ):
         assert heading in shared
+    assert "#### Recepciones asociadas" not in shared
+    assert "#### REAC asociados" not in shared
+    assert "#### Incidencias asociadas" not in shared
     for source in ('core.sc_po_links','core.receipts','core.reac_refs','core.incidents'):
         assert source in shared
 
