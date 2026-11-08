@@ -6,7 +6,7 @@ import pytest
 
 from src.pr_hand_deliveries import (
     normalize_pr,normalize_quantity,normalize_delivery_date,
-    duplicate_warning,manual_total,write_hand_delivery,
+    duplicate_warning,manual_total,write_hand_delivery,normalize_nbi,
 )
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -76,10 +76,10 @@ def test_writer_identity_and_parameterized_insert_and_void(monkeypatch):
     monkeypatch.setattr(pr.psycopg,"connect",lambda *a,**kw: Conn())
     result=write_hand_delivery("writer",ADMIN,"admin@example.com","insert",
                                pr_no="000715",quantity="2,25",
-                               delivery_date="2026-11-06",today=TODAY)
+                               delivery_date="2026-11-06",received_by_nbi="00042",today=TODAY)
     assert result==77
     assert calls[0][1]==("000715",Decimal("2.25"),date(2026,11,6),
-                        "admin@example.com")
+                        "00042","admin@example.com")
     assert "%s" in calls[0][0] and "planning.pr_hand_deliveries" in calls[0][0]
     result=write_hand_delivery("writer",ADMIN,"admin@example.com","void",entry_id=77)
     assert result==77
@@ -102,9 +102,11 @@ def test_unauthorized_or_invalid_never_opens_writer(monkeypatch):
              "admin@example.com","insert",pr_no="7",
              quantity="1",delivery_date=TODAY,today=TODAY)
     for kwargs in [
-        {"pr_no":"ABC","quantity":"1","delivery_date":TODAY},
-        {"pr_no":"123","quantity":"0","delivery_date":TODAY},
-        {"pr_no":"123","quantity":"2","delivery_date":date(2026,11,9)},
+        {"pr_no":"ABC","quantity":"1","delivery_date":TODAY,"received_by_nbi":"123"},
+        {"pr_no":"123","quantity":"0","delivery_date":TODAY,"received_by_nbi":"123"},
+        {"pr_no":"123","quantity":"2","delivery_date":date(2026,11,9),"received_by_nbi":"123"},
+        {"pr_no":"123","quantity":"2","delivery_date":TODAY,"received_by_nbi":"NBI-15"},
+        {"pr_no":"123","quantity":"2","delivery_date":TODAY},
     ]:
         with pytest.raises(ValueError):
             write_hand_delivery("writer",ADMIN,"admin@example.com","insert",
@@ -159,6 +161,7 @@ def test_manage_sc_and_manage_pr_tabs_and_compact_grid():
     assert '@st.fragment' in pr
     assert "with st.form(\"pr_add_delivery\",clear_on_submit=True):" in pr
     for label in ('st.text_input("PR"','st.text_input("Qty"',
+                  'st.text_input("Recibido por NBI"',
                   'st.date_input("Fecha entrega"'):
         assert label in pr
     assert 'rows.insert(0,"delete","X")' not in pr
@@ -182,5 +185,31 @@ def test_pr_erp_reconciliation_advisory_not_mutating():
     assert 'PR no encontrado' in pr
     assert 'supera la cantidad aprobada ERP' in pr
     assert 'warnings.append(' in pr
-    assert 'confirm_hand_delivery(pr,qty,day,warnings)' in pr
+    assert 'confirm_hand_delivery(pr,qty,day,nbi,warnings)' in pr
     assert 'UPDATE core.' not in pr
+
+
+@pytest.mark.parametrize("value,expected",[
+    ("00042","00042"),("123","123"),(" 0009 ","0009")
+])
+def test_nbi_numeric_identifier_preserves_zeros(value,expected):
+    assert normalize_nbi(value)==expected
+
+
+@pytest.mark.parametrize("value",["",None,"NBI123","12 34","12.3","-9","1"*41])
+def test_nbi_invalid_fails_closed(value):
+    with pytest.raises(ValueError):
+        normalize_nbi(value)
+
+
+def test_nbi_migration_nullable_for_legacy_rows_and_check_constraint():
+    migration=(ROOT/"migrations/011_pr_received_by_nbi.sql").read_text(encoding="utf-8")
+    assert "ADD COLUMN IF NOT EXISTS received_by_nbi TEXT" in migration
+    assert "received_by_nbi IS NULL OR received_by_nbi ~ '^[0-9]{1,40}$'" in migration
+    assert "UPDATE planning.pr_hand_deliveries" not in migration
+    assert "DROP TABLE" not in migration
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    assert '"received_by_nbi","created_by","created_at "' not in app or "received_by_nbi" in app
+    assert '"received_by_nbi","created_by"' in app or "received_by_nbi,created_by" in app
+    assert '"received_by_nbi","headerName":"Recibido por NBI"' in app
+    assert "received_by_nbi=nbi" in app
