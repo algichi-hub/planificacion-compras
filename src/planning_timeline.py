@@ -164,58 +164,6 @@ def timeline_figure(rows, today):
                 customdata=[v[3] for v in data],
                 hovertemplate="%{customdata}<extra></extra>",
             ))
-    # Every overdue line gets a warning: open lines at today's date and
-    # ERP-completed lines at their verified receipt-completion date.
-    # Keep the bar's real date unchanged; only offset the icon along the date
-    # axis. The offset scales with the time range for legibility on desktop
-    # and mobile, and the x-axis includes the displaced markers.
-    warnings = [r for r in rows if not r["issue"] and r["overdue_days"] > 0]
-    if warnings:
-        def warning_hover(row):
-            changed = row.get("plan_changed")
-            answer = ("Sí" if changed is True else "No" if changed is False
-                      else "No disponible")
-            original = row.get("original_plan")
-            original_date = (original.strftime("%d/%m/%Y")
-                             if original is not None else "No disponible")
-            completion = row.get("completion")
-            if completion is None:
-                heading = "Recepción pendiente fuera de plazo"
-                milestone = f"Fecha actual: {today:%d/%m/%Y}"
-            else:
-                heading = "Recepción completada fuera de plazo"
-                milestone = f"Recepción completada: {completion:%d/%m/%Y}"
-            return (
-                f"{row['label']}<br>"
-                f"{heading}<br>"
-                f"Plan original: {original_date}<br>"
-                f"Plan actual: {row['plan']:%d/%m/%Y}<br>"
-                f"{milestone}<br>"
-                f"Retraso: {row['overdue_days']} días naturales<br>"
-                f"Plan modificado respecto al original: {answer}"
-            )
-        # At the initial plotting scale, about 4% of the date range separates
-        # the warning triangle from the red bar; it is never drawn at its end.
-        visible_days = max(14, (max(ends)-min(starts)).days)
-        icon_offset_days = max(2, (visible_days + 24)//25)
-        icon_dates = [
-            r["cutoff"] + timedelta(days=icon_offset_days) for r in warnings
-        ]
-        ends.extend(icon_dates)
-        fig.add_trace(go.Scatter(
-            x=[day.isoformat() for day in icon_dates],
-            y=[r["label"] for r in warnings],
-            mode="markers+text",
-            marker={"symbol":"triangle-up","size":16,"color":OVERDUE},
-            text=["!" for _ in warnings],
-            textfont={"color":"#FFFFFF","size":9},
-            textposition="middle center",
-            name="Aviso de retraso",
-            showlegend=False,
-            customdata=[warning_hover(r) for r in warnings],
-            hovertemplate="%{customdata}<extra></extra>",
-            cliponaxis=False,
-        ))
     # Include invalid positions as their own row; never fabricate dates.
     if issues:
         fig.add_trace(go.Scatter(
