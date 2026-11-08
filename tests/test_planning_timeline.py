@@ -95,14 +95,14 @@ def test_two_bands_share_one_sc_label_with_exactly_half_thickness():
     fig=timeline_figure(model(row()),TODAY)
     bar_traces=[t for t in fig.data if t.type=="bar"]
     assert bar_traces
-    assert all(t.width==0.25 for t in bar_traces)
-    assert set(fig.layout.yaxis.ticktext)=={"761453/10 · 210"}
+    assert all(t.width==0.22 for t in bar_traces)
+    assert set(fig.layout.yaxis.ticktext)=={"761453/10"}
     assert fig.layout.yaxis.tickvals==(0,)
     upper=spans(fig,"SC → Pedido aprobado")[0]
     lower=spans(fig,"Hasta primera recepción")[0]
-    assert upper.y[0]==0.125
-    assert lower.y[0]==-0.125
-    assert upper.y[0]-upper.width/2==lower.y[0]+lower.width/2
+    assert upper.y[0]==0.13
+    assert lower.y[0]==-0.13
+    assert 0 < upper.y[0]-upper.width/2-(lower.y[0]+lower.width/2) <= 0.05
     assert fig.layout.xaxis.type=="date"
     assert fig.layout.shapes[0].x0==TODAY.isoformat()
     assert fig.layout.shapes[0].line.color==TODAY_LINE
@@ -247,7 +247,7 @@ def test_group_missing_position_is_rendered_without_invented_bar():
     assert result[1]["label"]=="700000/—"
     fig=timeline_figure(result,TODAY)
     assert len(fig.layout.yaxis.tickvals)==2
-    assert all(t.y[0]!=0.125-1 for t in fig.data if t.type=="bar")
+    assert all(t.y[0]!=-0.87 for t in fig.data if t.type=="bar")
 
 
 def test_erp_workflow_precedes_manually_derived_handover_status():
@@ -303,3 +303,49 @@ def test_other_views_and_selection_remain_unchanged():
     code=(ROOT/"src/planning_timeline.py").read_text(encoding="utf-8")
     for forbidden in ("triangle-up","warning_hover","icon_offset_days","Aviso de retraso"):
         assert forbidden not in code
+
+
+
+def test_new_celeste_and_light_gray_with_no_legend_and_compact_height():
+    assert REPLAN == "#38BDF8"
+    assert RECEIPT_WAIT == "#CBD5E1"
+    rows=model(
+        row(pos="10",first_receipt_date=date(2026,10,1),
+            first_approved_pr_date=date(2026,10,12),
+            first_approved_pr_qty=Decimal("20")),
+        row(pos="20",plan=date(2026,12,20)),
+        row(pos="30",plan=date(2026,12,22)),
+    )
+    fig=timeline_figure(rows,TODAY)
+    assert fig.layout.showlegend is False
+    assert list(fig.layout.yaxis.ticktext)==["761453/10","761453/20","761453/30"]
+    blue=spans(fig,"Plan original → Plan actual")[0]
+    gray=spans(fig,"Hasta primera recepción")[0]
+    assert blue.marker.color==REPLAN
+    assert gray.marker.color==RECEIPT_WAIT
+    assert fig.layout.height==max(200,100+27*len(rows))
+    assert all(t.width==0.22 for t in fig.data if t.type=="bar")
+    upper=spans(fig,"SC → Pedido aprobado")[0]
+    # Two bands separated by 0.04 units; not overlapping, minimal visual gap.
+    gap=upper.y[0]-upper.width/2-(gray.y[0]+gray.width/2)
+    assert gap==pytest.approx(0.04)
+    assert " · " not in " ".join(fig.layout.yaxis.ticktext)
+    assert fig.layout.xaxis.type=="date"
+    assert fig.layout.shapes[0].x0==TODAY.isoformat()
+
+
+def test_no_company_in_axis_even_when_source_company_differs():
+    data=model(row(pos="10",company="210"),row(pos="20",company="310"))
+    fig=timeline_figure(data,TODAY)
+    assert list(fig.layout.yaxis.ticktext)==["761453/10","761453/20"]
+    assert all(" · " not in r["label"] for r in data)
+    assert len(data)==2
+
+
+def test_shared_app_caption_tracks_new_colors_without_sql_or_selection_changes():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    assert "ampliación del plan (azul celeste)" in app
+    assert "(gris claro)" in app
+    assert "naranja oscuro" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
+    assert "query(" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
+    assert app.count('on_select="rerun",selection_mode="single-row"')==2
