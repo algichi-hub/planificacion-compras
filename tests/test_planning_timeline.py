@@ -275,6 +275,8 @@ def test_late_erp_completion_warning_hover_includes_yes_and_exact_dates():
     symbol=warning[0]
     assert symbol.type=="scatter"
     assert symbol.marker.symbol=="triangle-up"
+    assert symbol.marker.size==16
+    assert symbol.textfont.size==9
     assert symbol.marker.color==OVERDUE
     assert symbol.text[0]=="!"
     assert date.fromisoformat(symbol.x[0])>date(2026,10,20)
