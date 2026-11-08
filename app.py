@@ -506,7 +506,7 @@ with tab3:
             # query until the dedicated button is requested.
             stored=st.session_state.get("bulk_result")
             report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)
-            col_report,col_timeline=st.columns([1,1],gap="small")
+            col_report,col_timeline,_=st.columns([1.8,2,8],gap="small")
             with col_report:
                 consult_requested=st.button(
                     "Consultar grupo",type="primary",key="group_sc_report"
