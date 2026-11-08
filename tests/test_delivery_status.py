@@ -137,14 +137,18 @@ def test_group_overview_inherits_en_and_states_without_changing_keys():
     assert group["Ent"].iloc[2]=="—"
 
 
-def test_status_glyphs_use_thumb_up_with_distinct_pink_and_purple():
-    assert STATUS_SYMBOLS[PARTIAL]==("thumb_up","#DB2777")
-    assert STATUS_SYMBOLS[TOTAL]==("thumb_up","#7C3AED")
+def test_status_glyphs_use_thumb_up_and_handshake_with_requested_colors():
+    assert STATUS_SYMBOLS[PARTIAL]==("thumb_up","#F9A8D4")
+    assert STATUS_SYMBOLS[TOTAL]==("handshake","#7C3AED")
     pink=unquote(status_icon(PARTIAL))
     purple=unquote(status_icon(TOTAL))
-    assert 'fill="#DB2777"' in pink
+    assert 'fill="#F9A8D4"' in pink
     assert 'fill="#7C3AED"' in purple
     assert "thumb_up" in STATUS_SYMBOLS[PARTIAL][0]
+    assert "handshake" in STATUS_SYMBOLS[TOTAL][0]
+    from src.status_icons import PATHS
+    assert f'<path d="{PATHS["handshake"]}"/>' in purple
+    assert PATHS["handshake"] != PATHS["thumb_up"]
     assert status_icon(RECEIPT_COMPLETE)==status_icon("Completado")
 
 
@@ -163,3 +167,16 @@ def test_app_reconciles_at_view_time_and_does_not_write_erp():
     assert 'st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)' in app
     assert "UPDATE core." not in app
     assert "query.clear()" not in app
+
+
+def test_ent_alignment_is_right_with_unchanged_dynamic_width_and_shared_views():
+    """Streamlit must not infer left alignment from mixed Decimal/dash values."""
+    import ast
+    source=(ROOT/"app.py").read_text(encoding="utf-8")
+    assert '"Ent": st.column_config.Column(width=None, alignment="right")' in source
+    assert 'for name in ("Sol", "Ped", "Rec", "Apr")' in source
+    assert source.count("column_config=overview_column_config()")==2
+    assert 'format_sc_quantities(visible_overview.style)' in source
+    assert 'format_sc_quantities(bulk_view.style)' in source
+    assert 'result["Ent"] = "—"' in (ROOT/"src/sc_overview.py").read_text(encoding="utf-8")
+    ast.parse(source)
