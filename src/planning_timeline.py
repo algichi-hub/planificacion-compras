@@ -70,12 +70,13 @@ def build_timeline(source, today):
             issue = "Cronología inconsistente"
         span = (plan - approval).days if issue is None else None
         elapsed = (today - approval).days if issue is None else None
+        bounded_elapsed = max(0, min(span, elapsed)) if issue is None else None
         row = {
             "label": label, "approval": approval, "plan": plan,
-            "issue": issue, "elapsed_days": max(0, min(span, elapsed)) if issue is None else None,
-            "remaining_days": max(0, span-elapsed) if issue is None else None,
+            "issue": issue, "elapsed_days": bounded_elapsed,
+            "remaining_days": max(0, span-bounded_elapsed) if issue is None else None,
             "overdue_days": max(0, (today-plan).days) if issue is None else None,
-            "percent": (100*elapsed/span) if issue is None else None,
+            "percent": (100*max(0,elapsed)/span) if issue is None else None,
         }
         result.append(row)
     return result
@@ -142,6 +143,11 @@ def timeline_figure(rows, today):
         type="line", xref="x", yref="paper",
         x0=today.isoformat(), x1=today.isoformat(), y0=0, y1=1,
         line={"color":TODAY_LINE,"width":2,"dash":"dash"},
+    )
+    fig.add_annotation(
+        x=today.isoformat(), y=1.025, xref="x", yref="paper",
+        text="Hoy", showarrow=False, font={"color":TODAY_LINE,"size":11},
+        yanchor="bottom",
     )
     left=min(starts)
     right=max(ends)
