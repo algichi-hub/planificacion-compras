@@ -113,3 +113,49 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     assert group.count("render_planning_timeline(")==1
     assert 'render_sc_detail(line, sid, context="group")' in group
     assert 'render_sc_detail(line, sid, context="seguimiento")' in sc
+
+
+
+def test_sc_lightweight_sql_has_no_dangling_select_comma():
+    """Regression: SC 761452 crashed with SQL syntax error near FROM.
+
+    The lazy timeline split must preserve syntactically valid SELECT lists
+    for both workflow and legacy coverage branches.
+    """
+    import re
+    from pathlib import Path
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(
+        encoding="utf-8"
+    )
+    sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
+    statements=re.findall(
+        r'overview=query\("""SELECT (.*?)"""\+po_link_overview\+"""',
+        sc,re.DOTALL
+    )
+    assert len(statements)==2  # Workflow and fallback coverage.
+    for statement in statements:
+        assert "linked.po_positions,linked.planned_date" in statement
+        assert not re.search(r",\s*FROM\s+",statement,re.IGNORECASE)
+        assert re.search(
+            r"linked\.planned_date\s*FROM\s+planning\.",
+            statement,re.IGNORECASE
+        )
+        assert "receipt_closure" not in statement
+        assert "timeline_dates" not in statement
+
+
+def test_group_lightweight_sql_does_not_have_dangling_comma():
+    from pathlib import Path
+    import re
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(
+        encoding="utf-8"
+    )
+    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    overview=group.split("if consult_requested:",1)[1].split(
+        "grouped=group_overview(",1
+    )[0]
+    assert re.search(
+        r"linked\.planned_date\s*FROM\s+\{source_table\}",
+        overview,re.IGNORECASE
+    )
+    assert not re.search(r",\s*FROM\s+",overview,re.IGNORECASE)
