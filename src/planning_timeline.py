@@ -248,9 +248,16 @@ def _segments(row, today):
     # Grey is a single background, reaching only the last required PR if
     # delivered, or today for a still-open PO. Do not paint backwards in time.
     if plan is not None:
+        # When the plan moves earlier, the orange original-plan segment stays
+        # visible. Begin grey after that segment, never paint over orange.
+        grey_start = plan
+        if (order is not None and original is not None
+                and start <= order <= today and original >= order
+                and plan < original):
+            grey_start = original
         end = row["completion"] or today
-        if end>plan:
-            yield ("Pendiente de recepción",plan,end,RECEIPT_WAIT)
+        if end > grey_start:
+            yield ("Pendiente de recepción",grey_start,end,RECEIPT_WAIT)
 
 
 def _milestone_hover(row, marker):
