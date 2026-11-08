@@ -129,7 +129,10 @@ po_link_summary="""
   LEFT JOIN LATERAL (
       SELECT string_agg(l.po_no || '/' || l.po_pos, ', '
                         ORDER BY l.po_no,l.po_pos) AS po_positions,
-             min(p.planned_date) AS planned_date
+             min(p.planned_date) AS planned_date,
+             -- Deterministic PO/position for the earliest current plan.
+             (array_agg(l.po_no ORDER BY p.planned_date NULLS LAST,l.po_no,l.po_pos))[1] AS plan_po_no,
+             (array_agg(l.po_pos ORDER BY p.planned_date NULLS LAST,l.po_no,l.po_pos))[1] AS plan_po_pos
       FROM core.sc_po_links l
       JOIN core.po_lines p
         ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
@@ -141,7 +144,17 @@ po_link_summary="""
   -- The dates arrive in the same roundtrip as the existing overview query.
   LEFT JOIN LATERAL (
       SELECT min(NULLIF(btrim(v.fields->>'FECHA APROBACIÓN__12'),'')) AS approval_raw,
-             count(DISTINCT NULLIF(btrim(v.fields->>'FECHA APROBACIÓN__12'),'')) AS approval_distinct
+             count(DISTINCT NULLIF(btrim(v.fields->>'FECHA APROBACIÓN__12'),'')) AS approval_distinct,
+             -- Compare plan dates for the SAME PO/position selected above.
+             -- No second raw-source query and no cross-PO date mismatches.
+             min(NULLIF(btrim(v.fields->>'FECHA PLANIFICADA__26'),'')) FILTER (
+                WHERE v.fields->>'PEDIDO__16'=linked.plan_po_no
+                  AND v.fields->>'POSICIÓN__17'=linked.plan_po_pos
+             ) AS original_plan_raw,
+             count(DISTINCT NULLIF(btrim(v.fields->>'FECHA PLANIFICADA__26'),'')) FILTER (
+                WHERE v.fields->>'PEDIDO__16'=linked.plan_po_no
+                  AND v.fields->>'POSICIÓN__17'=linked.plan_po_pos
+             ) AS original_plan_distinct
       FROM planning.v_sc_source_detail v
       WHERE v.snapshot_id=s.snapshot_id AND v.company=s.company
         AND v.sc_no=s.sc_no AND v.sc_pos=s.sc_pos
@@ -370,7 +383,8 @@ with tab2:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
                     s.workflow_state,linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date,
+                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct
                     FROM planning.sc_workflow_status s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -380,7 +394,8 @@ with tab2:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
                     s.coverage_state,linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date,
+                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct
                     FROM planning.v_sc_coverage s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -447,7 +462,8 @@ with tab3:
                                s.description,s.project,s.requested_qty,s.ordered_qty,
                                s.received_qty,s.approved_qty,s.{status_column},
                                linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date,
+                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct
                                FROM {source_table} s
                                """+po_link_summary+"""
                                WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
