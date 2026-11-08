@@ -323,7 +323,7 @@ def test_new_celeste_and_light_gray_with_no_legend_and_compact_height():
     gray=spans(fig,"Hasta primera recepción")[0]
     assert blue.marker.color==REPLAN
     assert gray.marker.color==RECEIPT_WAIT
-    assert fig.layout.height==max(110,72+18*len(rows))
+    assert fig.layout.height==max(152,114+18*len(rows))
     assert all(t.width==0.22 for t in fig.data if t.type=="bar")
     upper=spans(fig,"SC → Pedido aprobado")[0]
     # Two bands separated by 0.04 units; not overlapping, minimal visual gap.
@@ -357,9 +357,9 @@ def test_inter_sc_group_gap_is_only_a_few_pixels(positions):
     """Bar groups remain distinct, with ~2-3 px between adjacent SCs."""
     rows=model(*(row(pos=str(10*(i+1))) for i in range(positions)))
     fig=timeline_figure(rows,TODAY)
-    assert fig.layout.height==max(110,72+18*positions)
+    assert fig.layout.height==max(152,114+18*positions)
     assert fig.layout.margin.t==32
-    assert fig.layout.margin.b==40
+    assert fig.layout.margin.b==82
     pitch=fig.layout.yaxis.tickvals[0]-fig.layout.yaxis.tickvals[1]
     assert pitch==pytest.approx(0.55)
     assert len(fig.layout.yaxis.tickvals)==positions
@@ -389,7 +389,7 @@ def test_slim_single_row_and_approval_line_maintain_correct_y_coordinates():
         first_approved_pr_qty=Decimal("100"),
     ))
     fig=timeline_figure(single,TODAY)
-    assert fig.layout.height==110
+    assert fig.layout.height==152
     assert list(fig.layout.yaxis.tickvals)==[0]
     assert list(fig.layout.yaxis.ticktext)==["761453/10"]
     approval=next(t for t in fig.data if t.name=="Aprobación total en primer PR")
@@ -427,3 +427,23 @@ def test_only_shared_timeline_plotly_chart_uses_locked_config():
     assert app.count('config={"displayModeBar":False,"scrollZoom":False,')==1
     assert "query(" not in block
     assert "st.plotly_chart" in block
+
+
+
+@pytest.mark.parametrize("positions", [1, 3, 20])
+def test_date_ticks_are_vertical_with_room_and_same_plot_area(positions):
+    fig=timeline_figure(
+        model(*(row(pos=str(i+1)) for i in range(positions))),TODAY
+    )
+    assert fig.layout.xaxis.tickangle==90
+    assert fig.layout.xaxis.tickformat=="%d/%m/%Y"
+    assert fig.layout.xaxis.fixedrange is True
+    assert fig.layout.yaxis.fixedrange is True
+    assert fig.layout.dragmode is False
+    assert fig.layout.margin.b==82
+    # Increased overall height exactly compensates the larger bottom margin:
+    # no compression of the preexisting dense SC bars.
+    old_chart_height=max(110,72+18*positions)-32-40
+    new_chart_height=fig.layout.height-fig.layout.margin.t-fig.layout.margin.b
+    assert new_chart_height==old_chart_height
+    assert fig.layout.showlegend is False
