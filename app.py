@@ -239,8 +239,8 @@ def render_planning_timeline(source, today, key):
                "recepción total (verde). La aprobación del PR se infiere del snapshot, "
                "no de una fecha histórica de calidad. Línea vertical: hoy (Madrid).")
     if missing:
-        st.caption(f"{missing} posiciones sin cronograma fiable: datos ausentes, "
-                   "contradictorios o fechas no válidas.")
+        st.caption(f"{missing} posiciones con hitos incompletos o fechas "
+                   "inconsistentes; solo se representan los tramos verificables.")
 
 def render_sc_detail(line, sid, context):
     """Read-only SC detail shared by individual and grouped views."""
