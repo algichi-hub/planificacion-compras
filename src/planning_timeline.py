@@ -1,11 +1,10 @@
 """Read-only, snapshot-specific planning timeline for SC positions.
 
 Bars represent elapsed calendar time, remaining scheduled time and overdue
-calendar time, not the physical delivery or receipt progress. No new database
-queries or state-dependent completion decorations.
+calendar time, not physical delivery quantities. The first verified ERP
+receipt-completion date stops the timeline, with no post-close fill.
 """
 from datetime import date, datetime, timedelta
-from decimal import Decimal
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -68,14 +67,31 @@ def build_timeline(source, today):
             issue = "Sin fecha plan actual válida"
         elif plan <= approval:
             issue = "Cronología inconsistente"
+        # The delivery-in-hand status is never a closure milestone; only ERP.
+        source_state = record.get("workflow_state",record.get("coverage_state"))
+        visual_state = record.get("display_state")
+        completed = source_state in ("Completado","Recepcion completada","complete")
+        completed = completed or visual_state in (
+            "Recepcion completada","Entregado parcial","Entregado total"
+        )
+        closure = as_day(record.get("completion_date")) if completed else None
+        if issue is None and completed:
+            if closure is None:
+                issue = "Sin fecha verificable de recepción completada"
+            elif closure < approval or closure > today:
+                issue = "Fecha de recepción completada inconsistente"
+        cutoff = closure if completed and issue is None else today
         span = (plan - approval).days if issue is None else None
-        elapsed = (today - approval).days if issue is None else None
+        elapsed = (cutoff - approval).days if issue is None else None
         bounded_elapsed = max(0, min(span, elapsed)) if issue is None else None
         row = {
             "label": label, "approval": approval, "plan": plan,
+            "completion": closure if completed and issue is None else None,
+            "cutoff": cutoff if issue is None else None,
             "issue": issue, "elapsed_days": bounded_elapsed,
-            "remaining_days": max(0, span-bounded_elapsed) if issue is None else None,
-            "overdue_days": max(0, (today-plan).days) if issue is None else None,
+            "remaining_days": (0 if completed else max(0,span-bounded_elapsed))
+                              if issue is None else None,
+            "overdue_days": max(0,(cutoff-plan).days) if issue is None else None,
             "percent": (100*max(0,elapsed)/span) if issue is None else None,
         }
         result.append(row)
@@ -97,13 +113,16 @@ def timeline_figure(rows, today):
             issues.append(row)
             continue
         start, plan = row["approval"], row["plan"]
+        cutoff = row.get("cutoff",today)
+        closed = row.get("completion") is not None
         starts.append(start)
         ends.extend([plan, today])
         # Intervals are non-overlapping; all bases and end dates are real dates.
         segments = (
-            ("Transcurrido", start, min(max(today, start), plan)),
-            ("Restante", max(start, min(today, plan)), plan),
-            ("Retraso", plan, max(today, plan)),
+            ("Transcurrido", start, min(max(cutoff, start), plan)),
+            ("Restante", max(start, min(cutoff, plan)),
+             plan if not closed else max(start, min(cutoff, plan))),
+            ("Retraso", plan, max(cutoff, plan)),
         )
         for kind, left, right in segments:
             if right > left:
@@ -112,7 +131,8 @@ def timeline_figure(rows, today):
                     f"Aprobación SC: {start:%d/%m/%Y}<br>"
                     f"Plan actual: {plan:%d/%m/%Y}<br>"
                     f"Hoy: {today:%d/%m/%Y}<br>"
-                    f"Plazo consumido: {row['percent']:.1f}%<br>"
+                    + (f"Recepción completada: {cutoff:%d/%m/%Y}<br>" if closed else "")
+                    + f"Plazo consumido: {row['percent']:.1f}%<br>"
                     f"Días de retraso: {row['overdue_days']}"
                 )
                 spans[kind].append((row["label"], left.isoformat(),
