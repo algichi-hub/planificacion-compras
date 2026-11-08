@@ -333,3 +333,16 @@ def test_shared_renderer_and_locked_plotly_config():
     assert "hand_deliveries.clear()" in app
     code=(ROOT/"src/planning_timeline.py").read_text(encoding="utf-8")
     assert "triangle-up" not in code and "warning_hover" not in code
+
+
+def test_advanced_plan_never_overlays_original_orange_with_grey():
+    rows=model(record(original="31/10/26",plan=date(2026,10,20),
+                      events=[event()]))
+    fig=timeline_figure(rows,TODAY)
+    orange=bars(fig,"Pedido → Plan original")[0]
+    grey=bars(fig,"Pendiente de recepción")[0]
+    assert orange.base[0]=="2026-10-10"
+    assert orange.x[0]==21*86400000
+    assert grey.base[0]=="2026-10-31"
+    assert grey.x[0]==8*86400000
+    assert not bars(fig,"Plan original → Plan actual")
