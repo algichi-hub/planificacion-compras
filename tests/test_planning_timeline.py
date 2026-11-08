@@ -269,14 +269,14 @@ def test_late_erp_completion_warning_hover_includes_yes_and_exact_dates():
     assert item["original_plan"]==date(2026,10,10)
     assert item["plan_changed"] is True
     fig=timeline_figure([item],TODAY)
-    warning=[trace for trace in fig.data if trace.name=="Recepción fuera de plazo"]
+    warning=[trace for trace in fig.data if trace.name=="Aviso de retraso"]
     assert len(warning)==1
     symbol=warning[0]
     assert symbol.type=="scatter"
     assert symbol.marker.symbol=="triangle-up"
     assert symbol.marker.color==OVERDUE
     assert symbol.text[0]=="!"
-    assert symbol.x[0]=="2026-10-20"
+    assert date.fromisoformat(symbol.x[0])>date(2026,10,20)
     assert symbol.y[0]==item["label"]
     assert "Plan modificado respecto al original: Sí" in symbol.customdata[0]
     assert "Plan original: 10/10/2026" in symbol.customdata[0]
@@ -295,7 +295,7 @@ def test_same_original_plan_reports_no_in_warning_hover():
     item=build_timeline(pd.DataFrame([rec]),TODAY)[0]
     assert item["plan_changed"] is False
     warning=next(t for t in timeline_figure([item],TODAY).data
-                 if t.name=="Recepción fuera de plazo")
+                 if t.name=="Aviso de retraso")
     assert "Plan modificado respecto al original: No" in warning.customdata[0]
 
 
@@ -309,11 +309,11 @@ def test_missing_invalid_or_conflicting_original_never_guessed_as_no(original,co
     item=build_timeline(pd.DataFrame([rec]),TODAY)[0]
     assert item["plan_changed"] is None
     warning=next(t for t in timeline_figure([item],TODAY).data
-                 if t.name=="Recepción fuera de plazo")
+                 if t.name=="Aviso de retraso")
     assert "Plan modificado respecto al original: No disponible" in warning.customdata[0]
 
 
-def test_only_late_completed_rows_receive_warning_never_open_overdue_or_on_time():
+def test_warning_for_both_open_overdue_and_late_completed_but_not_on_time():
     source=pd.DataFrame([
         row(pos="10",state="Material sin recibir",plan=date(2026,10,15)),
         row(pos="20",state="Completado",plan=date(2026,10,15),
@@ -325,9 +325,15 @@ def test_only_late_completed_rows_receive_warning_never_open_overdue_or_on_time(
     ])
     rows=build_timeline(source,TODAY)
     fig=timeline_figure(rows,TODAY)
-    warning=next(t for t in fig.data if t.name=="Recepción fuera de plazo")
-    assert len(warning.x)==1
-    assert warning.y[0]==rows[1]["label"]
+    warning=next(t for t in fig.data if t.name=="Aviso de retraso")
+    assert len(warning.x)==2
+    assert list(warning.y)==[rows[0]["label"],rows[1]["label"]]
+    assert date.fromisoformat(warning.x[0])>TODAY
+    assert date.fromisoformat(warning.x[1])>rows[1]["completion"]
+    assert "Recepción pendiente fuera de plazo" in warning.customdata[0]
+    assert "Fecha actual: 08/11/2026" in warning.customdata[0]
+    assert "Recepción completada:" not in warning.customdata[0]
+    assert "Recepción completada fuera de plazo" in warning.customdata[1]
     red=next(t for t in fig.data if t.name=="Retraso")
     assert set(red.y)=={rows[0]["label"],rows[1]["label"]}
 
@@ -345,3 +351,50 @@ def test_multiple_positions_and_po_plan_comparison_share_single_overview_query()
     assert app.count("render_planning_timeline(")==3
     assert "query(" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
     assert "UPDATE core." not in app
+
+
+def test_warning_is_separated_from_bar_on_short_and_long_time_scales():
+    for approval, plan, cutoff in [
+        ("01/11/26",date(2026,11,2),date(2026,11,8)),
+        ("01/01/25",date(2026,1,2),date(2026,8,8)),
+    ]:
+        line=build_timeline(pd.DataFrame([
+            row(approved=approval,plan=plan,state="Completado",completion=cutoff)
+        ]),TODAY)[0]
+        fig=timeline_figure([line],TODAY)
+        warning=next(t for t in fig.data if t.name=="Aviso de retraso")
+        red=next(t for t in fig.data if t.name=="Retraso")
+        red_end=plan+timedelta(milliseconds=red.x[0])
+        assert red_end==cutoff
+        icon_day=date.fromisoformat(warning.x[0])
+        assert icon_day>red_end
+        assert (icon_day-red_end).days>=2
+        assert date.fromisoformat(fig.layout.xaxis.range[1])>icon_day
+
+
+def test_open_overdue_warning_yes_no_and_unknown_original_plan():
+    records=[
+        {**row(pos="10",plan=date(2026,11,1)),"original_plan_raw":"31/10/26","original_plan_distinct":1},
+        {**row(pos="20",plan=date(2026,11,1)),"original_plan_raw":"01/11/26","original_plan_distinct":1},
+        {**row(pos="30",plan=date(2026,11,1)),"original_plan_raw":None,"original_plan_distinct":0},
+    ]
+    fig=timeline_figure(build_timeline(pd.DataFrame(records),TODAY),TODAY)
+    marker=next(t for t in fig.data if t.name=="Aviso de retraso")
+    assert len(marker.x)==3
+    assert all("Recepción pendiente fuera de plazo" in tip for tip in marker.customdata)
+    assert "Plan modificado respecto al original: Sí" in marker.customdata[0]
+    assert "Plan modificado respecto al original: No" in marker.customdata[1]
+    assert "Plan modificado respecto al original: No disponible" in marker.customdata[2]
+    assert all("Retraso: 7 días naturales" in tip for tip in marker.customdata)
+    assert all(date.fromisoformat(x)>TODAY for x in marker.x)
+
+
+def test_warning_not_added_to_invalid_and_predeadline_lines():
+    source=pd.DataFrame([
+        row(pos="10",plan=date(2026,12,15)),
+        row(pos="20",count=2,plan=date(2026,10,15)),
+        row(pos="30",plan=date(2026,11,8)),
+    ])
+    fig=timeline_figure(build_timeline(source,TODAY),TODAY)
+    assert not any(t.name=="Aviso de retraso" for t in fig.data)
+    assert len(fig.layout.shapes)==1
