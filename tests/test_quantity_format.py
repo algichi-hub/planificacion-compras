@@ -89,7 +89,8 @@ def test_overview_auto_sizes_only_quantity_columns_without_overriding_number_for
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
     assert 'name: st.column_config.Column(width=None)' in app
-    assert 'for name in ("Sol", "Ped", "Rec", "Apr", "Ent")' in app
+    assert 'for name in ("Sol", "Ped", "Rec", "Apr")' in app
+    assert '"Ent": st.column_config.Column(width=None, alignment="right")' in app
     assert 'format_sc_quantities(visible_overview.style)' in app
     assert 'st.column_config.NumberColumn(width="small")' not in app
     # No explicit widths for the other seven columns.
