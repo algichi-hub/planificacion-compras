@@ -263,7 +263,8 @@ def test_plotly_same_compact_appearance_and_axis_180_without_year():
     assert fig.layout.dragmode is False
     assert fig.layout.xaxis.fixedrange is True
     assert fig.layout.yaxis.fixedrange is True
-    assert fig.layout.xaxis.tickangle==180
+    # Plotly normalizes +180 to -180; these are the same orientation.
+    assert fig.layout.xaxis.tickangle==-180
     assert fig.layout.xaxis.tickformat=="%d/%m"
     assert fig.layout.xaxis.type=="date"
     assert len(fig.layout.yaxis.ticktext)==8
