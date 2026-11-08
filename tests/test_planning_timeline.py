@@ -86,7 +86,8 @@ def test_plotly_stacked_intervals_date_axis_and_today_common():
     assert traces["Retraso"].base[0]=="2026-11-01"
     assert len(fig.layout.shapes)==1
     assert fig.layout.shapes[0].x0==TODAY.isoformat()
-    assert all(t.type=="bar" for t in fig.data)
+    assert all(t.type=="bar" for t in fig.data if t.name in ("Transcurrido","Restante","Retraso"))
+    assert any(t.name=="Aviso de retraso" and t.type=="scatter" for t in fig.data)
 
 
 def test_conflicting_approval_missing_invalid_and_inverted_dates():
