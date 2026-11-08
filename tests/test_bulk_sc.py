@@ -159,7 +159,7 @@ def test_group_overview_matches_individual_sc_columns_and_icons():
     assert grouped["SC/Pos"].tolist()==["00012/1","00012/2","00099"]
     assert grouped["PO/Pos"].tolist()==["001/1","001/2, 002/1","—"]
     assert grouped["fecha_plan"].tolist()==["05/11/2026","05/12/2026","—"]
-    assert grouped["estado"].tolist()==["Material sin recibir","Completado","No encontrada"]
+    assert grouped["estado"].tolist()==["Material sin recibir","Recepcion completada","No encontrada"]
     assert pd.isna(grouped.iloc[-1][" "])
     style=overview_row_style(grouped.iloc[0],date(2026,11,7))
     assert "color: #B91C1C" in style[grouped.columns.get_loc("fecha_plan")]
