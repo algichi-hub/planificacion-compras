@@ -346,3 +346,54 @@ def test_advanced_plan_never_overlays_original_orange_with_grey():
     assert grey.base[0]=="2026-10-31"
     assert grey.x[0]==8*86400000
     assert not bars(fig,"Plan original → Plan actual")
+
+
+@pytest.mark.parametrize("position", ["10","20","30","40","50","60"])
+def test_sc_761488_real_erp_dates_keep_all_13_red_days_uncovered(position):
+    # Snapshot 8 actual raw ERP values: approval 01/10, order 14/10,
+    # original and current plan 05/10 (plan predates order).
+    rows=model(record(
+        pos=position, approval="01/10/26", order="14/10/26",
+        original="05/10/26", plan=date(2026,10,5),
+        events=[event(po="762087",pos=str(int(position)//10),qty=20)]
+    ))
+    row=rows[0]
+    assert "Plan original anterior a aprobación del pedido" in row["issues"]
+    fig=timeline_figure(rows,TODAY)
+    red=bars(fig,"SC → Pedido aprobado")[0]
+    grey=bars(fig,"Pendiente de recepción")[0]
+    assert red.base[0]=="2026-10-01"
+    assert red.x[0]==13*86400000
+    assert grey.base[0]=="2026-10-14"
+    assert grey.x[0]==25*86400000
+    assert not bars(fig,"Pedido → Plan original")
+    assert not bars(fig,"Plan original → Plan actual")
+    assert fig.layout.showlegend is False
+    assert fig.layout.dragmode is False
+    assert fig.layout.xaxis.fixedrange is True
+    assert fig.layout.xaxis.tickformat=="%d/%m"
+    assert fig.layout.xaxis.tickangle==-180
+
+
+def test_grey_never_overlays_valid_purchasing_segments_across_date_patterns():
+    cases=[
+        # Earlier plan than PO approval, as shown by the user's screenshot.
+        ("01/10/26","14/10/26","05/10/26",date(2026,10,5)),
+        # Original plan after PO approval but current plan accelerated.
+        ("01/10/26","14/10/26","31/10/26",date(2026,10,20)),
+        # Original plan and current plan both after PO approval.
+        ("01/10/26","14/10/26","31/10/26",date(2026,11,1)),
+        # Current plan after PO approval but original plan before it.
+        ("01/10/26","14/10/26","05/10/26",date(2026,10,20)),
+    ]
+    for sc_date,po_date,orig_date,plan in cases:
+        fig=timeline_figure(model(record(
+            approval=sc_date,order=po_date,original=orig_date,plan=plan
+        )),TODAY)
+        grey=bars(fig,"Pendiente de recepción")[0]
+        grey_start=date.fromisoformat(grey.base[0])
+        for trace in fig.data:
+            if trace.type!="bar" or trace.name=="Pendiente de recepción":
+                continue
+            finish=date.fromisoformat(trace.base[0])+pd.Timedelta(milliseconds=int(trace.x[0]))
+            assert grey_start>=finish.date() if isinstance(finish,pd.Timestamp) else grey_start>=finish
