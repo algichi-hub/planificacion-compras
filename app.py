@@ -230,7 +230,10 @@ def render_planning_timeline(source, today, key):
         st.caption("Sin posiciones SC para representar.")
         return
     rows=build_timeline(source,today)
+    # Keep hover details; hide native modebar and prevent zoom/edit actions.
     st.plotly_chart(timeline_figure(rows,today),use_container_width=True,
+                    config={"displayModeBar":False,"scrollZoom":False,
+                            "doubleClick":False,"editable":False},
                     key=f"{key}_planning_timeline")
     missing=sum(bool(row["issue"]) for row in rows)
     st.caption("Superior: SC → pedido (rojo), pedido → plan original (naranja), "
