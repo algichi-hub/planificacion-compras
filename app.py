@@ -521,19 +521,12 @@ with tab3:
         if items.empty:
             st.info("Este grupo todavía no tiene SC asociadas.")
         else:
-            # Group consultation is lightweight: no PR aggregation or timeline
-            # query until the dedicated button is requested.
-            stored=st.session_state.get("bulk_result")
-            report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)
+            # Independent group state: a new group/snapshot hides the chart.
+            sync_context(st.session_state,"group",(sid,group_id))
             col_report,col_timeline,_=st.columns([1.8,2,8],gap="small")
             with col_report:
                 consult_requested=st.button(
                     "Consultar grupo",type="primary",key="group_sc_report"
-                )
-            with col_timeline:
-                timeline_requested=st.button(
-                    "Cargar cronograma",key="group_sc_load_timeline",
-                    disabled=not report_ready or consult_requested
                 )
             if consult_requested:
                 numbers=items["sc_no"].astype(str).tolist()
@@ -554,9 +547,18 @@ with tab3:
                 grouped=group_overview(items,group_status)
                 group_source=group_overview_source(items,group_status)
                 st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)
-                st.session_state.pop("bulk_timeline",None)
+                reset_timeline(st.session_state,"group")
             stored=st.session_state.get("bulk_result")
-            if timeline_requested and stored and stored[0]==sid and stored[1]==group_id:
+            report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)
+            with col_timeline:
+                group_showing=timeline_visible(st.session_state,"group")
+                timeline_requested=st.button(
+                    "Ocultar cronograma" if group_showing else "Mostrar cronograma",
+                    key="group_sc_timeline_toggle",disabled=not report_ready
+                )
+            if timeline_requested and report_ready:
+                toggle_timeline(st.session_state,"group")
+            if timeline_visible(st.session_state,"group") and report_ready and st.session_state.get("group_timeline_data") is None:
                 numbers=items["sc_no"].astype(str).tolist()
                 source_table=("planning.sc_workflow_status" if workflow_ready
                               else "planning.v_sc_coverage")
@@ -569,7 +571,7 @@ with tab3:
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
                     ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,numbers))
-                st.session_state["bulk_timeline"]=(sid,group_id,timeline_data)
+                st.session_state["group_timeline_data"]=timeline_data
             if stored and stored[0]==sid and stored[1]==group_id:
                 bulk_view=stored[2]
                 group_source=enrich_delivery_status(stored[3],sid)
@@ -588,11 +590,10 @@ with tab3:
                     on_select="rerun",selection_mode="single-row",
                     key=f"group_sc_overview_{sid}_{group_id}",
                 )
-                timeline_saved=st.session_state.get("bulk_timeline")
-                if (timeline_saved and timeline_saved[0]==sid
-                        and timeline_saved[1]==group_id):
+                timeline_saved=st.session_state.get("group_timeline_data")
+                if report_ready and timeline_visible(st.session_state,"group") and timeline_saved is not None:
                     timeline_source=group_source.merge(
-                        timeline_saved[2],on=["company","sc_no","sc_pos"],
+                        timeline_saved,on=["company","sc_no","sc_pos"],
                         how="left",sort=False,validate="one_to_one"
                     )
                     render_planning_timeline(timeline_source,madrid_today,
