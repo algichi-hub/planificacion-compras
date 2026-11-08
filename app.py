@@ -146,6 +146,31 @@ po_link_summary="""
       WHERE v.snapshot_id=s.snapshot_id AND v.company=s.company
         AND v.sc_no=s.sc_no AND v.sc_pos=s.sc_pos
   ) timeline_dates ON true
+  -- Total receipt completion is the FIRST event date at which the cumulative
+  -- ERP-approved quantity meets the requested SC quantity. Partial receipts
+  -- and later movements must not move that milestone forward.
+  -- Evaluated within the existing cached overview query; no extra roundtrip.
+  LEFT JOIN LATERAL (
+      SELECT CASE
+        WHEN bool_and(ev.safe) AND max(ev.cumulative_approved)>=s.requested_qty
+        THEN min(ev.receipt_date) FILTER
+             (WHERE ev.cumulative_approved>=s.requested_qty)
+      END AS completion_date
+      FROM (
+          SELECT r.receipt_date,
+                 sum(coalesce(r.approved_qty,0)) OVER
+                   (ORDER BY r.receipt_date,r.source_line
+                    ROWS UNBOUNDED PRECEDING) AS cumulative_approved,
+                 (r.receipt_date IS NOT NULL AND r.approved_qty IS NOT NULL
+                  AND r.approved_qty>=0 AND l.allocation_status='verified') AS safe
+          FROM core.sc_po_links l
+          LEFT JOIN core.receipts r
+            ON (r.snapshot_id,r.po_no,r.po_pos)=(l.snapshot_id,l.po_no,l.po_pos)
+          WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
+            AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos
+            AND s.approved_qty>=s.requested_qty AND s.requested_qty>0
+      ) ev
+  ) receipt_closure ON true
 """
 
 def overview_column_config():
@@ -170,8 +195,9 @@ def render_planning_timeline(source, today, key):
     st.plotly_chart(timeline_figure(rows,today),use_container_width=True,
                     key=f"{key}_planning_timeline")
     missing=sum(bool(row["issue"]) for row in rows)
-    st.caption("Azul: plazo transcurrido · Gris: plazo restante · Rojo: retraso · "
-               "Línea naranja: hoy (Madrid). Solo tiempo, no avance de recepción ni entrega.")
+    st.caption("Azul: plazo transcurrido · Gris: plazo restante (solo pendientes) · "
+               "Rojo: retraso · Línea naranja: hoy (Madrid). "
+               "Las líneas con recepción completada terminan en la fecha de cierre ERP.")
     if missing:
         st.caption(f"{missing} posiciones sin cronograma fiable: datos ausentes, "
                    "contradictorios o fechas no válidas.")
@@ -344,7 +370,7 @@ with tab2:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
                     s.workflow_state,linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date
                     FROM planning.sc_workflow_status s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -354,7 +380,7 @@ with tab2:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
                     s.coverage_state,linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date
                     FROM planning.v_sc_coverage s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -421,7 +447,7 @@ with tab3:
                                s.description,s.project,s.requested_qty,s.ordered_qty,
                                s.received_qty,s.approved_qty,s.{status_column},
                                linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date
                                FROM {source_table} s
                                """+po_link_summary+"""
                                WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
