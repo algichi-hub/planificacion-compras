@@ -176,15 +176,6 @@ def render_sc_detail(line, sid, context):
             key=f"{widget_prefix}_detail",
         )
         st.caption("Solo en estado «Material sin recibir»: plan actual vencido en rojo; entre hoy y los próximos 7 días naturales en amarillo; a más de 7 días en verde. Texto en negrita, sin fondo.")
-    export=pd.concat([request.assign(Sección="Datos de solicitud"),
-                      plan.assign(Sección="Pedido y planificación")],ignore_index=True)
-    st.download_button(
-        "Exportar detalle CSV",
-        export[["Sección","Campo","Valor"]].to_csv(index=False,sep=";").encode("utf-8-sig"),
-        file_name=f"detalle_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-        mime="text/csv",
-        key=f"{widget_prefix}_download_detail",
-    )
     st.markdown("#### Recepciones")
     receptions=receptions_table(trace)
     if receptions.empty:
@@ -196,13 +187,6 @@ def render_sc_detail(line, sid, context):
                      height=min(720,35*(len(receptions)+1)+3),
                      key=f"{widget_prefix}_receptions")
         st.caption("Recepción: número (fecha, Re: cantidad recibida en admisión de entrada, Ap: cantidad aprobada tras el control de calidad). La diferencia Rec − Apr corresponde a unidades que todavía no constan como aprobadas; no implica necesariamente rechazo.")
-        st.download_button(
-            "Exportar recepciones CSV",
-            receptions.to_csv(index=False,sep=";").encode("utf-8-sig"),
-            file_name=f"recepciones_SC_{line['sc_no']}_{line['sc_pos']}.csv",
-            mime="text/csv",
-            key=f"{widget_prefix}_download_receptions",
-        )
     # REAC is keyed to the selected SC position; it is not an operational state.
     st.markdown("#### REAC")
     reac_detail=query("""SELECT reac_no AS referencia_reac,
