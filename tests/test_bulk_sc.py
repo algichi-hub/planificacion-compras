@@ -58,7 +58,7 @@ def test_migration_keeps_user_lists_separate_from_erp():
 
 def test_separate_group_reporting_and_manage_tab_with_admin_gate():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert '["Resumen","Seguimiento SC","Group SC","Manage"]' in app
+    assert '["Resumen","Seguimiento SC","Group SC","Manage SC","Manage PR"]' in app
     assert "with tab3:" in app and "with tab4:" in app
     group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     manage_part=app.split("with tab4:",1)[1]
