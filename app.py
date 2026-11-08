@@ -806,7 +806,11 @@ with tab5:
             if ledger.empty:
                 st.caption("Sin entregas físicas registradas.")
             else:
-                visible=ledger[["id","pr_no","quantity","delivery_date","received_by_nbi"]].copy()
+                # Enforce newest actual delivery date first, then newest entry
+                # for equal dates, even if the cached DataFrame order changes.
+                visible=ledger.sort_values(
+                    ["delivery_date","id"],ascending=[False,False],kind="stable"
+                )[["id","pr_no","quantity","delivery_date","received_by_nbi"]].copy()
                 visible["received_by_nbi"]=visible["received_by_nbi"].fillna("—").astype(str)
                 visible["quantity"]=visible["quantity"].map(format_quantity)
                 visible["delivery_date"]=visible["delivery_date"].map(lambda x:x.strftime("%d/%m/%Y"))
@@ -835,7 +839,20 @@ with tab5:
                                       "paddingLeft":"0","paddingRight":"0"}},
                         {"field":"pr_no","headerName":"PR","minWidth":110,"flex":2},
                         {"field":"quantity","headerName":"Qty","minWidth":90,"flex":1},
-                        {"field":"delivery_date","headerName":"Fecha entrega","minWidth":140,"flex":2},
+                        {"field":"delivery_date","headerName":"Fecha entrega","minWidth":140,"flex":2,
+                         "sortable":True,"sort":"desc",
+                         "comparator":JsCode("""
+                            function(a,b) {
+                                const order = value => {
+                                    if (typeof value !== 'string') return 0;
+                                    const parts = value.split('/');
+                                    if (parts.length !== 3) return 0;
+                                    return Number(parts[2])*10000+
+                                           Number(parts[1])*100+Number(parts[0]);
+                                };
+                                return order(a)-order(b);
+                            }
+                         """)},
                         {"field":"received_by_nbi","headerName":"Recibido por NBI","minWidth":140,"flex":2},
                     ],
                     "defaultColDef":{"editable":False,"filter":False,"sortable":False,
