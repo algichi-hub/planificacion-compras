@@ -85,7 +85,8 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     assert 'sync_context(st.session_state,"sc",(sid,sc_number))' in sc
     assert '"Ocultar cronograma" if timeline_visible(st.session_state,"sc")' in sc
     assert 'else "Mostrar cronograma",key="sc_timeline_toggle"' in sc
-    assert 'toggle_timeline(st.session_state,"sc")' in sc
+    assert 'on_click=toggle_timeline,args=(st.session_state,"sc")' in sc
+    assert 'if st.button(' not in sc.split('# State belongs only to this SC',1)[1].split('if timeline_visible(st.session_state,"sc"):',1)[0]
     assert sc.count("po_link_overview")==2
     assert sc.count("po_link_summary")==1
     assert sc.index('if timeline_visible(st.session_state,"sc"):') < sc.index(
@@ -100,7 +101,8 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     assert '"Ocultar cronograma" if group_showing else "Mostrar cronograma"' in group
     assert "disabled=not report_ready" in group
     assert 'reset_timeline(st.session_state,"group")' in group
-    assert 'toggle_timeline(st.session_state,"group")' in group
+    assert 'on_click=toggle_timeline,args=(st.session_state,"group")' in group
+    assert 'if timeline_requested and report_ready:' not in group
     assert group.count("po_link_overview")==1
     assert group.count("po_link_summary")==1
     assert group.index('st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)') < group.index(
@@ -159,3 +161,24 @@ def test_group_lightweight_sql_does_not_have_dangling_comma():
         overview,re.IGNORECASE
     )
     assert not re.search(r",\s*FROM\s+",overview,re.IGNORECASE)
+
+
+def test_button_caption_matches_visible_state_on_every_callback():
+    """Streamlit on_click runs before label evaluation on the rerun."""
+    def caption(state,scope):
+        return "Ocultar cronograma" if timeline_visible(state,scope) else "Mostrar cronograma"
+
+    state={}
+    sync_context(state,"sc",(8,"761452"))
+    sync_context(state,"group",(8,42))
+    for scope in ("sc","group"):
+        assert caption(state,scope)=="Mostrar cronograma"
+        toggle_timeline(state,scope)  # click: callback executes before widget renders
+        assert caption(state,scope)=="Ocultar cronograma"
+        toggle_timeline(state,scope)
+        assert caption(state,scope)=="Mostrar cronograma"
+        toggle_timeline(state,scope)
+        assert caption(state,scope)=="Ocultar cronograma"
+    reset_timeline(state,"group")
+    assert caption(state,"group")=="Mostrar cronograma"
+    assert caption(state,"sc")=="Ocultar cronograma"
