@@ -36,7 +36,7 @@ def test_selected_position_shows_only_its_prs_and_preserves_partial_deliveries()
     assert result.to_dict("records")==[
         {"PR":"000715","Qty":"4","Fecha entrega":"06/11/2026","Recibido por NBI":"—"},
         {"PR":"000715","Qty":"3,5","Fecha entrega":"07/11/2026","Recibido por NBI":"—"},
-        {"PR":"000715","Qty":"3,5","Fecha entrega":"07/11/2026"},
+        {"PR":"000715","Qty":"3,5","Fecha entrega":"07/11/2026","Recibido por NBI":"—"},
         {"PR":"000724","Qty":"0,25","Fecha entrega":"08/11/2026","Recibido por NBI":"—"},
     ]
 
@@ -49,7 +49,7 @@ def test_no_receipt_or_no_matching_manual_entry_yields_empty_three_column_table(
     for trace in (pd.DataFrame(),no_receipt):
         result=real_delivery_table(trace,ledger)
         assert result.empty
-        assert result.columns.tolist()==["PR","Qty","Fecha entrega"]
+        assert result.columns.tolist()==["PR","Qty","Fecha entrega","Recibido por NBI"]
         assert linked_receipt_numbers(trace)==()
     different=pd.DataFrame([{"parte_recepcion":"00012"}])
     assert real_delivery_table(different,ledger).empty
