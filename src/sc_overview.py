@@ -5,11 +5,12 @@ Keep the source rows intact for position-based selection and database lookup.
 from datetime import date, datetime
 import pandas as pd
 from src.status_icons import status_icon
+from src.delivery_status import present_state
 from src.planned_date_style import planned_date_style
 
 DISPLAY_COLUMNS = (
     " ", "Proyecto", "SC/Pos", "PO/Pos", "article", "description",
-    "fecha_plan", "Sol", "Ped", "Rec", "Apr", "estado",
+    "fecha_plan", "Sol", "Ped", "Rec", "Apr", "En", "estado",
 )
 
 
@@ -24,8 +25,10 @@ def overview_display(source):
     if source.empty:
         return pd.DataFrame(columns=list(DISPLAY_COLUMNS))
     result = pd.DataFrame(index=source.index)
-    result[" "] = (source["workflow_state"] if "workflow_state" in source.columns
-                   else source["coverage_state"]).map(status_icon)
+    state = (source["display_state"] if "display_state" in source.columns else
+             source["workflow_state"] if "workflow_state" in source.columns else
+             source["coverage_state"].map(lambda s: s))
+    result[" "] = state.map(lambda s: status_icon(present_state(s)))
     result["Proyecto"] = source["project"]
     result["SC/Pos"] = [
         _join_id(no, pos) for no, pos in zip(source["sc_no"], source["sc_pos"])
@@ -45,11 +48,8 @@ def overview_display(source):
         ("Apr", "approved_qty"),
     ):
         result[display] = source[raw]
-    result["estado"] = (
-        source["workflow_state"]
-        if "workflow_state" in source.columns
-        else source["coverage_state"]
-    )
+    result["En"] = source["hand_qty"] if "hand_qty" in source.columns else None
+    result["estado"] = state.map(present_state)
     return result.loc[:, list(DISPLAY_COLUMNS)]
 
 
