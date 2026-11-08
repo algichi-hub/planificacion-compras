@@ -16,6 +16,14 @@ def normalize_pr(value):
     return normalize_sc(value)
 
 
+def normalize_nbi(value):
+    """NBI is a numeric-only identifier stored as text to preserve zeroes."""
+    try:
+        return normalize_sc(value)
+    except ValueError as exc:
+        raise ValueError("Recibido por NBI: introduce de 1 a 40 dígitos.") from exc
+
+
 def normalize_quantity(value):
     """Spanish decimal comma or decimal dot; never interpret grouping marks."""
     if isinstance(value, bool):
@@ -54,7 +62,7 @@ def _authorized_email(user, allowed_emails):
 
 
 def write_hand_delivery(admin_dsn, user, allowed_emails, operation, *,
-                        pr_no=None, quantity=None, delivery_date=None, entry_id=None,
+                        pr_no=None, quantity=None, delivery_date=None, received_by_nbi=None, entry_id=None,
                         today=None):
     """Validate before connecting; one parameterized transactional mutation."""
     actor = _authorized_email(user, allowed_emails)
@@ -64,12 +72,13 @@ def write_hand_delivery(admin_dsn, user, allowed_emails, operation, *,
         pr = normalize_pr(pr_no)
         qty = normalize_quantity(quantity)
         handover_date = normalize_delivery_date(delivery_date, today=today)
+        nbi = normalize_nbi(received_by_nbi)
         statement = (
             "INSERT INTO planning.pr_hand_deliveries "
-            "(pr_no,quantity,delivery_date,created_by) VALUES (%s,%s,%s,%s) "
+            "(pr_no,quantity,delivery_date,received_by_nbi,created_by) VALUES (%s,%s,%s,%s,%s) "
             "RETURNING id"
         )
-        values = (pr, qty, handover_date, actor)
+        values = (pr, qty, handover_date, nbi, actor)
     elif operation == "void":
         if isinstance(entry_id, bool) or not str(entry_id).isdigit() or int(entry_id) <= 0:
             raise ValueError("Identificador de entrega inválido.")
