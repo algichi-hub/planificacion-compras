@@ -1,24 +1,32 @@
-"""Read-only, snapshot-specific planning timeline for SC positions.
+"""Read-only, two-band ERP purchase and receipt calendar for each SC position.
 
-Bars represent elapsed calendar time, remaining scheduled time and overdue
-calendar time, not physical delivery quantities. The first verified ERP
-receipt-completion date stops the timeline, with no post-close fill.
+The upper band represents purchasing milestones and planned dates. The lower
+band represents receipts and snapshot-observed PR approval. ERP has NO dated
+quality approval event: do not mislabel receipt_date as actual approval time.
 """
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation
 import pandas as pd
 import plotly.graph_objects as go
 
 from src.normalize import date_es
 
-ELAPSED = "#3B82F6"
-REMAINING = "#CBD5E1"
-OVERDUE = "#DC2626"
+SC_ORDER = "#DC2626"
+ORDER_ORIGINAL = "#F59E0B"
+REPLAN = "#C2410C"
+RECEIPT_WAIT = "#94A3B8"
+RECEIPT_APPROVAL = "#FACC15"
+RECEIPT_APPROVED = "#16A34A"
 TODAY_LINE = "#D97706"
 MISSING = "#64748B"
 
+# Legacy names kept for imports in independent older reports/tests, if any.
+ELAPSED = SC_ORDER
+REMAINING = RECEIPT_WAIT
+OVERDUE = REPLAN
+
 
 def as_day(value):
-    """Date only; reject malformed or out-of-domain source values."""
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -34,12 +42,27 @@ def as_day(value):
     return None
 
 
-def build_timeline(source, today):
-    """One position per row, preserving source order and stating date anomalies.
+def _distinct_day(record, key, count_key):
+    count = record.get(count_key)
+    try:
+        n = int(count) if count is not None and not pd.isna(count) else 0
+    except (ValueError, TypeError):
+        n = 0
+    return (as_day(record.get(key)) if n == 1 else None), n
 
-    approval_distinct comes from a per-position aggregate on the approved
-    least-privilege source view. Never select among conflicting source dates.
-    """
+
+def _positive_number(value):
+    try:
+        if value is None or pd.isna(value):
+            return None
+        number = Decimal(str(value))
+        return number if number.is_finite() and number > 0 else None
+    except (ValueError, TypeError, InvalidOperation):
+        return None
+
+
+def build_timeline(source, today):
+    """Build independent upper and lower event bands; disclose uncertain data."""
     today = as_day(today)
     if today is None:
         raise ValueError("Fecha actual inválida.")
@@ -51,163 +74,208 @@ def build_timeline(source, today):
         company = record.get("company")
         company = "" if company is None or pd.isna(company) else str(company)
         label = f"{sc}/{position}" + (f" · {company}" if company else "")
-        distinct = record.get("approval_distinct")
-        try:
-            distinct = int(distinct) if distinct is not None and not pd.isna(distinct) else 0
-        except (TypeError, ValueError):
-            distinct = 0
-        approval = as_day(record.get("approval_raw")) if distinct == 1 else None
+        approval, approval_count = _distinct_day(
+            record, "approval_raw", "approval_distinct"
+        )
+        original, original_count = _distinct_day(
+            record, "original_plan_raw", "original_plan_distinct"
+        )
+        order_approval, order_count = _distinct_day(
+            record, "po_approval_raw", "po_approval_distinct"
+        )
         plan = as_day(record.get("planned_date"))
-        issue = None
-        if distinct > 1:
-            issue = "Aprobaciones SC diferentes en origen"
-        elif approval is None:
-            issue = "Sin fecha de aprobación SC válida"
-        elif plan is None:
-            issue = "Sin fecha plan actual válida"
-        elif plan <= approval:
-            issue = "Cronología inconsistente"
-        original_distinct = record.get("original_plan_distinct")
-        try:
-            original_distinct = (int(original_distinct)
-                                 if original_distinct is not None and not pd.isna(original_distinct)
-                                 else 0)
-        except (TypeError, ValueError):
-            original_distinct = 0
-        original_plan = (as_day(record.get("original_plan_raw"))
-                         if original_distinct == 1 else None)
-        # Unknown/contradictory original plans must not be mistaken for "No".
-        plan_changed = (original_plan != plan
-                        if original_plan is not None and plan is not None else None)
-        # The delivery-in-hand status is never a closure milestone; only ERP.
-        source_state = record.get("workflow_state",record.get("coverage_state"))
-        visual_state = record.get("display_state")
-        # The authoritative ERP workflow takes precedence over the display
-        # state (which may include manually derived physical handovers).
-        if isinstance(source_state,str) and source_state:
-            completed = source_state in ("Completado","Recepcion completada","complete")
+        first_receipt = as_day(record.get("first_receipt_date"))
+        first_approved_pr = as_day(record.get("first_approved_pr_date"))
+        first_approved_qty = _positive_number(record.get("first_approved_pr_qty"))
+        requested = _positive_number(record.get("requested_qty"))
+        state = record.get("workflow_state", record.get("coverage_state"))
+        display_state = record.get("display_state")
+        if isinstance(state, str) and state:
+            complete = state in ("Completado", "Recepcion completada", "complete")
         else:
-            completed = visual_state in (
-                "Recepcion completada","Entregado parcial","Entregado total"
+            complete = display_state in (
+                "Recepcion completada", "Entregado parcial", "Entregado total"
             )
-        closure = as_day(record.get("completion_date")) if completed else None
-        if issue is None and completed:
-            if closure is None:
-                issue = "Sin fecha verificable de recepción completada"
-            elif closure < approval or closure > today:
-                issue = "Fecha de recepción completada inconsistente"
-        cutoff = closure if completed and issue is None else today
-        span = (plan - approval).days if issue is None else None
-        elapsed = (cutoff - approval).days if issue is None else None
-        bounded_elapsed = max(0, min(span, elapsed)) if issue is None else None
-        row = {
-            "label": label, "approval": approval, "plan": plan,
-            "completion": closure if completed and issue is None else None,
-            "cutoff": cutoff if issue is None else None,
-            "original_plan": original_plan, "plan_changed": plan_changed,
-            "issue": issue, "elapsed_days": bounded_elapsed,
-            "remaining_days": (0 if completed else max(0,span-bounded_elapsed))
-                              if issue is None else None,
-            "overdue_days": max(0,(cutoff-plan).days) if issue is None else None,
-            "percent": (100*max(0,elapsed)/span) if issue is None else None,
-        }
-        result.append(row)
+        closure = as_day(record.get("completion_date")) if complete else None
+        issues = []
+        if approval_count > 1:
+            issues.append("Aprobaciones SC diferentes en origen")
+        elif approval is None:
+            issues.append("Sin fecha de aprobación SC válida")
+        if order_count > 1:
+            issues.append("Aprobaciones de pedido contradictorias")
+        if original_count > 1:
+            issues.append("Planes originales contradictorios")
+        if plan is None:
+            issues.append("Sin fecha plan actual válida")
+        if approval is not None and plan is not None and plan <= approval:
+            issues.append("Cronología inconsistente")
+        if complete and closure is None:
+            issues.append("Sin fecha verificable de recepción completada")
+        if complete and closure is not None and (
+            closure > today or (approval is not None and closure < approval)
+        ):
+            issues.append("Fecha de recepción completada inconsistente")
+        if first_receipt is not None and (
+            first_receipt > today or (approval is not None and first_receipt < approval)
+        ):
+            issues.append("Primera recepción con fecha inconsistente")
+            first_receipt = None
+        if first_approved_pr is not None and (
+            first_receipt is None or first_approved_pr < first_receipt
+            or first_approved_pr > today
+            or (closure is not None and first_approved_pr > closure)
+        ):
+            issues.append("Primer PR aprobado con fecha inconsistente")
+            first_approved_pr = None
+        if closure is not None and first_receipt is not None and closure < first_receipt:
+            issues.append("Cierre anterior a la primera recepción")
+            closure = None
+        # Never infer actual quality approval dates from the ERP snapshot.
+        # The first fully-approved PR uses its recorded receipt_date.
+        full_first_pr = (
+            first_receipt is not None and first_approved_pr == first_receipt
+            and first_approved_qty is not None and requested is not None
+            and first_approved_qty >= requested and closure == first_receipt
+        )
+        cutoff = closure if complete and closure is not None else today
+        span = (plan - approval).days if approval and plan and plan > approval else None
+        elapsed = (cutoff - approval).days if span is not None else None
+        result.append({
+            "label": label, "approval": approval, "po_approval": order_approval,
+            "original_plan": original, "plan": plan,
+            "first_receipt": first_receipt, "first_approved_pr": first_approved_pr,
+            "completion": closure if complete else None, "cutoff": cutoff,
+            "first_pr_full_total": full_first_pr, "complete": complete,
+            "issues": issues, "issue": issues[0] if issues else None,
+            "plan_changed": original != plan if original and plan else None,
+            "elapsed_days": max(0, min(span,elapsed)) if span is not None else None,
+            "remaining_days": max(0,span-elapsed) if span is not None and not complete
+                              else 0 if span is not None else None,
+            "overdue_days": max(0,(cutoff-plan).days) if plan else None,
+            "percent": 100*max(0,elapsed)/span if span is not None else None,
+        })
     return result
 
 
+def _segments(row, today):
+    """Yield (band, name, start, finish, color), preserving known milestones."""
+    start = row["approval"]
+    if start is None:
+        return
+    order = row["po_approval"]
+    original = row["original_plan"]
+    plan = row["plan"]
+    cutoff = row["cutoff"]
+    # Purchasing stage dates belong to the earliest-planned linked PO.
+    if order is not None and start <= order <= today:
+        if order > start:
+            yield ("upper", "SC → Pedido aprobado", start, order, SC_ORDER)
+        if original is not None and original >= order:
+            if original > order:
+                yield ("upper", "Pedido → Plan original", order, original, ORDER_ORIGINAL)
+            if plan is not None and plan > original:
+                yield ("upper", "Plan original → Plan actual", original, plan, REPLAN)
+    received = row["first_receipt"]
+    approved = row["first_approved_pr"]
+    if received is None:
+        if not row["complete"] and cutoff > start:
+            yield ("lower", "Hasta primera recepción", start, cutoff, RECEIPT_WAIT)
+        return
+    if received > start:
+        yield ("lower", "Hasta primera recepción", start, received, RECEIPT_WAIT)
+    if approved is None:
+        if cutoff > received:
+            yield ("lower", "Pendiente aprobación PR", received, cutoff, RECEIPT_APPROVAL)
+        return
+    if approved > received:
+        yield ("lower", "Hasta primer PR íntegramente aprobado",
+               received, approved, RECEIPT_APPROVAL)
+    if cutoff > approved:
+        yield ("lower", "Desde primer PR aprobado", approved, cutoff, RECEIPT_APPROVED)
+
+
 def timeline_figure(rows, today):
-    """Plotly horizontal temporal stacked intervals on one common date scale."""
+    """Exactly two adjacent half-height bands for each SC on one date axis."""
     today = as_day(today)
     if today is None:
         raise ValueError("Fecha actual inválida.")
     fig = go.Figure()
-    spans = {"Transcurrido": [], "Restante": [], "Retraso": []}
-    starts, ends = [today], [today]
-    labels = [row["label"] for row in rows]
-    issues = []
-    for row in rows:
-        if row["issue"]:
-            issues.append(row)
-            continue
-        start, plan = row["approval"], row["plan"]
-        cutoff = row.get("cutoff",today)
-        closed = row.get("completion") is not None
-        starts.append(start)
-        ends.extend([plan, today])
-        # Intervals are non-overlapping; all bases and end dates are real dates.
-        segments = (
-            ("Transcurrido", start, min(max(cutoff, start), plan)),
-            ("Restante", max(start, min(cutoff, plan)),
-             plan if not closed else max(start, min(cutoff, plan))),
-            ("Retraso", plan, max(cutoff, plan)),
-        )
-        for kind, left, right in segments:
-            if right > left:
-                details = (
-                    f"{row['label']}<br>"
-                    f"Aprobación SC: {start:%d/%m/%Y}<br>"
-                    f"Plan actual: {plan:%d/%m/%Y}<br>"
-                    f"Hoy: {today:%d/%m/%Y}<br>"
-                    + (f"Recepción completada: {cutoff:%d/%m/%Y}<br>" if closed else "")
-                    + f"Plazo consumido: {row['percent']:.1f}%<br>"
-                    f"Días de retraso: {row['overdue_days']}"
-                )
-                spans[kind].append((row["label"], left.isoformat(),
-                                    (right-left).days*86400000, details))
-    for kind,color in (("Transcurrido",ELAPSED),("Restante",REMAINING),("Retraso",OVERDUE)):
-        data = spans[kind]
-        if data:
-            fig.add_trace(go.Bar(
-                y=[v[0] for v in data], x=[v[2] for v in data],
-                base=[v[1] for v in data], orientation="h",
-                width=0.55, marker_color=color, name=kind,
-                customdata=[v[3] for v in data],
-                hovertemplate="%{customdata}<extra></extra>",
+    traces = {}
+    bounds = [today]
+    n = len(rows)
+    for i, row in enumerate(rows):
+        y = n - i - 1
+        for band, name, left, right, color in _segments(row, today):
+            if right <= left:
+                continue
+            bounds.extend((left,right))
+            trace_key = (name, color)
+            detail = (
+                f"{row['label']}<br>{name}<br>"
+                f"Desde: {left:%d/%m/%Y}<br>Hasta: {right:%d/%m/%Y}"
+            )
+            traces.setdefault(trace_key,[]).append((
+                y + (0.125 if band == "upper" else -0.125),
+                left.isoformat(),(right-left).days*86400000, detail,
             ))
-    # Include invalid positions as their own row; never fabricate dates.
-    if issues:
-        fig.add_trace(go.Scatter(
-            x=[today.isoformat() for _ in issues],
-            y=[r["label"] for r in issues],
-            mode="markers+text", name="Datos no disponibles",
-            text=[r["issue"] for r in issues], textposition="middle right",
-            marker={"symbol":"circle-open","size":8,"color":MISSING},
-            textfont={"size":10,"color":MISSING},
-            cliponaxis=False,
-            hovertemplate="%{y}<br>%{text}<extra></extra>",
+        if row["approval"]:
+            bounds.append(row["approval"])
+        if row["plan"]:
+            bounds.append(row["plan"])
+        # A one-day/full-quantity PR is an instantaneous green middle-thick
+        # vertical line rather than a fabricated green-duration interval.
+        if row["first_pr_full_total"] and row["first_receipt"] is not None:
+            d=row["first_receipt"].isoformat()
+            fig.add_trace(go.Scatter(
+                x=[d,d], y=[y-0.235,y-0.015], mode="lines",
+                line={"width":3.5,"color":RECEIPT_APPROVED},
+                name="Aprobación total en primer PR", showlegend=False,
+                hovertemplate=(
+                    f"{row['label']}<br>Primer PR aprobado totalmente<br>"
+                    f"Recepción: {row['first_receipt']:%d/%m/%Y}<extra></extra>"
+                ),
+            ))
+    for (name,color), data in traces.items():
+        fig.add_trace(go.Bar(
+            y=[v[0] for v in data], x=[v[2] for v in data],
+            base=[v[1] for v in data], orientation="h", width=0.25,
+            marker={"color":color}, name=name,
+            customdata=[v[3] for v in data],
+            hovertemplate="%{customdata}<extra></extra>",
         ))
     fig.add_shape(
-        type="line", xref="x", yref="paper",
-        x0=today.isoformat(), x1=today.isoformat(), y0=0, y1=1,
+        type="line",xref="x",yref="paper",
+        x0=today.isoformat(),x1=today.isoformat(),y0=0,y1=1,
         line={"color":TODAY_LINE,"width":2,"dash":"dash"},
     )
     fig.add_annotation(
-        x=today.isoformat(), y=1.025, xref="x", yref="paper",
-        text="Hoy", showarrow=False, font={"color":TODAY_LINE,"size":11},
+        x=today.isoformat(),y=1.025,xref="x",yref="paper",
+        text="Hoy",showarrow=False,font={"color":TODAY_LINE,"size":11},
         yanchor="bottom",
     )
-    left=min(starts)
-    right=max(ends)
-    if right <= left:
-        left=today-timedelta(days=7)
-        right=today+timedelta(days=7)
-    pad=max(2,(right-left).days//25)
+    first=min(bounds)
+    last=max(bounds)
+    if first == last:
+        first=today-timedelta(days=7)
+        last=today+timedelta(days=7)
+    padding=max(2,(last-first).days//25)
     fig.update_layout(
-        barmode="overlay", height=max(260,110+36*len(rows)),
-        margin={"l":10,"r":130 if issues else 20,"t":20,"b":38},
-        legend={"orientation":"h","y":1.13,"x":0,"font":{"size":11}},
-        hovermode="closest", showlegend=True,
+        barmode="overlay",height=max(260,115+36*n),
+        margin={"l":10,"r":20,"t":32,"b":40},
+        legend={"orientation":"h","y":1.2,"x":0,"font":{"size":10}},
+        hovermode="closest",
         xaxis={
-            "type":"date","tickformat":"%d/%m/%Y","range":[
-                (left-timedelta(days=pad)).isoformat(),
-                (right+timedelta(days=pad)).isoformat(),
-            ],
-            "showgrid":True,"gridcolor":"rgba(148,163,184,0.18)",
-            "title":None,
+            "type":"date","tickformat":"%d/%m/%Y",
+            "range":[(first-timedelta(days=padding)).isoformat(),
+                     (last+timedelta(days=padding)).isoformat()],
+            "showgrid":True,"gridcolor":"rgba(148,163,184,0.18)","title":None,
         },
         yaxis={
-            "categoryorder":"array","categoryarray":list(reversed(labels)),
-            "automargin":True,"title":None,
+            "type":"linear","tickvals":[n-i-1 for i in range(n)],
+            "ticktext":[row["label"] for row in rows],
+            "range":[-0.5,max(0.5,n-0.5)],"automargin":True,"title":None,
+            "showgrid":False,"zeroline":False,
         },
     )
     return fig
