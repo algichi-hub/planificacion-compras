@@ -104,8 +104,16 @@ def build_timeline(source, today):
             issues.append("Sin fecha de aprobación SC válida")
         if order_count > 1:
             issues.append("Aprobaciones de pedido contradictorias")
+        elif order_approval is None:
+            issues.append("Sin fecha de aprobación del pedido válida")
+        elif approval is not None and (order_approval < approval or order_approval > today):
+            issues.append("Aprobación del pedido fuera de secuencia")
         if original_count > 1:
             issues.append("Planes originales contradictorios")
+        elif original is None:
+            issues.append("Sin plan original válido")
+        elif order_approval is not None and original < order_approval:
+            issues.append("Plan original anterior a aprobación del pedido")
         if plan is None:
             issues.append("Sin fecha plan actual válida")
         if approval is not None and plan is not None and plan <= approval:
