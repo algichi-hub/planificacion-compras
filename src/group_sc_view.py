@@ -18,6 +18,8 @@ def group_overview_source(items, status):
     )
     missing = joined["_merge"].eq("left_only")
     joined.loc[missing, status_column] = "No encontrada"
+    if "display_state" in joined.columns:
+        joined.loc[missing, "display_state"] = "No encontrada"
     return joined.drop(columns=["_merge"])
 
 
