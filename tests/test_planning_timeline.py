@@ -258,3 +258,90 @@ def test_multiple_erp_movements_first_threshold_not_last_day_in_query():
     assert "LEFT JOIN core.receipts r" in app
     block=app.split('def render_planning_timeline(',1)[1].split('def render_sc_detail(',1)[0]
     assert "query(" not in block
+
+
+
+def test_late_erp_completion_warning_hover_includes_yes_and_exact_dates():
+    rec=row(plan=date(2026,10,15),state="Completado",
+            completion=date(2026,10,20))
+    rec.update(original_plan_raw="10/10/26",original_plan_distinct=1)
+    item=build_timeline(pd.DataFrame([rec]),TODAY)[0]
+    assert item["original_plan"]==date(2026,10,10)
+    assert item["plan_changed"] is True
+    fig=timeline_figure([item],TODAY)
+    warning=[trace for trace in fig.data if trace.name=="Recepción fuera de plazo"]
+    assert len(warning)==1
+    symbol=warning[0]
+    assert symbol.type=="scatter"
+    assert symbol.marker.symbol=="triangle-up"
+    assert symbol.marker.color==OVERDUE
+    assert symbol.text[0]=="!"
+    assert symbol.x[0]=="2026-10-20"
+    assert symbol.y[0]==item["label"]
+    assert "Plan modificado respecto al original: Sí" in symbol.customdata[0]
+    assert "Plan original: 10/10/2026" in symbol.customdata[0]
+    assert "Plan actual: 15/10/2026" in symbol.customdata[0]
+    assert "Recepción completada: 20/10/2026" in symbol.customdata[0]
+    assert "Retraso: 5 días naturales" in symbol.customdata[0]
+    red=next(trace for trace in fig.data if trace.name=="Retraso")
+    assert red.base[0]=="2026-10-15"
+    assert red.x[0]==5*86400000
+
+
+def test_same_original_plan_reports_no_in_warning_hover():
+    rec=row(plan=date(2026,10,15),state="Completado",
+            completion=date(2026,10,20))
+    rec.update(original_plan_raw="15/10/2026",original_plan_distinct=1)
+    item=build_timeline(pd.DataFrame([rec]),TODAY)[0]
+    assert item["plan_changed"] is False
+    warning=next(t for t in timeline_figure([item],TODAY).data
+                 if t.name=="Recepción fuera de plazo")
+    assert "Plan modificado respecto al original: No" in warning.customdata[0]
+
+
+@pytest.mark.parametrize("original,count",[
+    (None,0),("30/02/26",1),("15/10/26",2),("—",1)
+])
+def test_missing_invalid_or_conflicting_original_never_guessed_as_no(original,count):
+    rec=row(plan=date(2026,10,15),state="Completado",
+            completion=date(2026,10,20))
+    rec.update(original_plan_raw=original,original_plan_distinct=count)
+    item=build_timeline(pd.DataFrame([rec]),TODAY)[0]
+    assert item["plan_changed"] is None
+    warning=next(t for t in timeline_figure([item],TODAY).data
+                 if t.name=="Recepción fuera de plazo")
+    assert "Plan modificado respecto al original: No disponible" in warning.customdata[0]
+
+
+def test_only_late_completed_rows_receive_warning_never_open_overdue_or_on_time():
+    source=pd.DataFrame([
+        row(pos="10",state="Material sin recibir",plan=date(2026,10,15)),
+        row(pos="20",state="Completado",plan=date(2026,10,15),
+            completion=date(2026,10,20)),
+        row(pos="30",state="Completado",plan=date(2026,10,20),
+            completion=date(2026,10,20)),
+        row(pos="40",state="Completado",plan=date(2026,10,31),
+            completion=date(2026,10,20)),
+    ])
+    rows=build_timeline(source,TODAY)
+    fig=timeline_figure(rows,TODAY)
+    warning=next(t for t in fig.data if t.name=="Recepción fuera de plazo")
+    assert len(warning.x)==1
+    assert warning.y[0]==rows[1]["label"]
+    red=next(t for t in fig.data if t.name=="Retraso")
+    assert set(red.y)=={rows[0]["label"],rows[1]["label"]}
+
+
+def test_multiple_positions_and_po_plan_comparison_share_single_overview_query():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    sql=app.split('po_link_summary="""',1)[1].split('"""',1)[0]
+    assert "(array_agg(l.po_no ORDER BY p.planned_date NULLS LAST,l.po_no,l.po_pos))[1]" in sql
+    assert "(array_agg(l.po_pos ORDER BY p.planned_date NULLS LAST,l.po_no,l.po_pos))[1]" in sql
+    assert "v.fields->>'PEDIDO__16'=linked.plan_po_no" in sql
+    assert "v.fields->>'POSICIÓN__17'=linked.plan_po_pos" in sql
+    assert "v.fields->>'FECHA PLANIFICADA__26'" in sql
+    assert sql.count("FROM planning.v_sc_source_detail v")==1
+    assert app.count("timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct")==3
+    assert app.count("render_planning_timeline(")==3
+    assert "query(" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
+    assert "UPDATE core." not in app
