@@ -58,7 +58,7 @@ def test_no_manual_data_keeps_dash_and_renames_erp_state():
     visible=overview_display(result)
     assert list(visible.columns)==list(DISPLAY_COLUMNS)
     assert DISPLAY_COLUMNS[-2:]==("En","estado")
-    assert visible["En"].isna().all()
+    assert visible["En"].tolist()==["—","—"]
     assert visible["estado"].tolist()==[RECEIPT_COMPLETE,"Parcialmente aprobadas"]
     assert "color: #15803D" not in unquote(visible.iloc[0][" "])
 
@@ -70,6 +70,7 @@ def test_partial_handover_across_two_prs_and_partial_same_pr():
     assert result.iloc[0]["display_state"]==PARTIAL
     assert result.iloc[1]["hand_qty"] is None
     visible=overview_display(result)
+    assert visible.iloc[1]["En"]=="—"
     assert visible.iloc[0]["En"]==Decimal("5")
     assert visible.iloc[0]["estado"]==PARTIAL
     assert "color" not in visible.iloc[0]["estado"]
@@ -133,7 +134,7 @@ def test_group_overview_inherits_en_and_states_without_changing_keys():
     assert group["En"].iloc[0]==Decimal("10")
     assert group["estado"].iloc[0]==TOTAL
     assert group["estado"].iloc[2]=="No encontrada"
-    assert pd.isna(group["En"].iloc[2])
+    assert group["En"].iloc[2]=="—"
 
 
 def test_status_glyphs_use_thumb_up_with_distinct_pink_and_purple():
