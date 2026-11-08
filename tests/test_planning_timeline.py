@@ -1,5 +1,5 @@
 """Single-bar ERP purchase/PR timeline: date semantics and regression."""
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from decimal import Decimal
 import json
@@ -395,5 +395,6 @@ def test_grey_never_overlays_valid_purchasing_segments_across_date_patterns():
         for trace in fig.data:
             if trace.type!="bar" or trace.name=="Pendiente de recepción":
                 continue
-            finish=date.fromisoformat(trace.base[0])+pd.Timedelta(milliseconds=int(trace.x[0]))
-            assert grey_start>=finish.date() if isinstance(finish,pd.Timestamp) else grey_start>=finish
+            finish=(date.fromisoformat(trace.base[0])
+                    + timedelta(milliseconds=int(trace.x[0])))
+            assert grey_start >= finish
