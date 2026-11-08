@@ -48,7 +48,13 @@ def overview_display(source):
         ("Apr", "approved_qty"),
     ):
         result[display] = source[raw]
-    result["En"] = source["hand_qty"] if "hand_qty" in source.columns else None
+    # Streamlit may render object-column None literally as "None" despite
+    # Styler.format. Replace missing *display* values only; keep Decimal entries
+    # and the source data unchanged for calculations and reconciliation.
+    if "hand_qty" in source.columns:
+        result["En"] = source["hand_qty"].where(source["hand_qty"].notna(), "—")
+    else:
+        result["En"] = "—"
     result["estado"] = state.map(present_state)
     return result.loc[:, list(DISPLAY_COLUMNS)]
 
