@@ -17,7 +17,7 @@ from src.group_sc_view import group_overview, group_overview_source
 from src.quantity_format import format_sc_quantities
 from src.bulk_sc import is_bulk_admin, write_bulk
 from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize_quantity,
-                                    normalize_delivery_date, duplicate_warning)
+                                    normalize_delivery_date, normalize_nbi, duplicate_warning)
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -56,7 +56,7 @@ def group_items(group_id):
 def hand_deliveries():
     """Only active manual deliveries; this cache never flushes ERP queries."""
     return _read_management(
-        "SELECT id,pr_no,quantity,delivery_date,created_by,created_at "
+        "SELECT id,pr_no,quantity,delivery_date,received_by_nbi,created_by,created_at "
         "FROM planning.pr_hand_deliveries WHERE voided_at IS NULL "
         "ORDER BY delivery_date DESC,id DESC"
     )
@@ -702,8 +702,8 @@ with tab5:
         st.info("Manage PR requiere la misma cuenta administradora verificada que Manage SC.")
     else:
         @st.dialog("Confirmar entrega física")
-        def confirm_hand_delivery(pr,qty,day,warnings):
-            st.write(f"Registrar **PR {pr}**, **Qty {str(qty).replace('.', ',')}**, **{day.strftime('%d/%m/%Y')}**.")
+        def confirm_hand_delivery(pr,qty,day,nbi,warnings):
+            st.write(f"Registrar **PR {pr}**, **Qty {str(qty).replace('.', ',')}**, **{day.strftime('%d/%m/%Y')}**, **NBI {nbi}**.")
             for warning in warnings:
                 st.warning(warning)
             st.caption("Esta operación no modifica el ERP ni las existencias de almacén.")
@@ -718,6 +718,7 @@ with tab5:
                     try:
                         write_hand_delivery(pr_admin_dsn,pr_identity,pr_admin_emails,"insert",
                                             pr_no=pr,quantity=str(qty),delivery_date=day,
+                                            received_by_nbi=nbi,
                                             today=datetime.now(ZoneInfo("Europe/Madrid")).date())
                     except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                         st.error(f"No se pudo registrar: {str(exc) if isinstance(exc,ValueError) else type(exc).__name__}")
@@ -757,7 +758,7 @@ with tab5:
                 st.success(st.session_state.pop("pr_notice"))
             today=datetime.now(ZoneInfo("Europe/Madrid")).date()
             with st.form("pr_add_delivery",clear_on_submit=True):
-                a,b,c=st.columns([2,1,2],gap="small")
+                a,b,c,d=st.columns([2,1,2,2],gap="small")
                 with a:
                     entered_pr=st.text_input("PR",placeholder="Número de parte")
                 with b:
@@ -765,6 +766,8 @@ with tab5:
                 with c:
                     entered_date=st.date_input("Fecha entrega",value=today,
                                                format="DD/MM/YYYY",max_value=today)
+                with d:
+                    entered_nbi=st.text_input("Recibido por NBI",placeholder="NBI",max_chars=40)
                 submitted=st.form_submit_button("Añadir entrega",icon=":material/add:")
             ledger=hand_deliveries()
             if submitted:
@@ -772,6 +775,7 @@ with tab5:
                     pr=normalize_pr(entered_pr)
                     qty=normalize_quantity(entered_qty)
                     day=normalize_delivery_date(entered_date,today=today)
+                    nbi=normalize_nbi(entered_nbi)
                     warnings=[]
                     if duplicate_warning(ledger.to_dict("records"),pr,qty,day,today=today):
                         warnings.append("Ya existe una entrega activa con el mismo PR, Qty y fecha. Comprueba que no es un duplicado.")
@@ -795,14 +799,15 @@ with tab5:
                             approved=evidence["approved_qty"]
                             if approved is not None and not pd.isna(approved) and registered+qty>approved:
                                 warnings.append("La cantidad acumulada entregada en mano supera la cantidad aprobada ERP del snapshot. Verifica el PR.")
-                    confirm_hand_delivery(pr,qty,day,warnings)
+                    confirm_hand_delivery(pr,qty,day,nbi,warnings)
                 except ValueError as exc:
                     st.error(str(exc))
             st.markdown("**Entregas reales registradas**")
             if ledger.empty:
                 st.caption("Sin entregas físicas registradas.")
             else:
-                visible=ledger[["id","pr_no","quantity","delivery_date"]].copy()
+                visible=ledger[["id","pr_no","quantity","delivery_date","received_by_nbi"]].copy()
+                visible["received_by_nbi"]=visible["received_by_nbi"].fillna("—").astype(str)
                 visible["quantity"]=visible["quantity"].map(format_quantity)
                 visible["delivery_date"]=visible["delivery_date"].map(lambda x:x.strftime("%d/%m/%Y"))
                 visible.insert(0,"delete","X")
@@ -831,6 +836,7 @@ with tab5:
                         {"field":"pr_no","headerName":"PR","minWidth":110,"flex":2},
                         {"field":"quantity","headerName":"Qty","minWidth":90,"flex":1},
                         {"field":"delivery_date","headerName":"Fecha entrega","minWidth":140,"flex":2},
+                        {"field":"received_by_nbi","headerName":"Recibido por NBI","minWidth":140,"flex":2},
                     ],
                     "defaultColDef":{"editable":False,"filter":False,"sortable":False,
                                      "resizable":True},
