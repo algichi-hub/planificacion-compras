@@ -97,10 +97,10 @@ def manual_total(rows, pr_no):
                Decimal("0"))
 
 
-def duplicate_warning(rows, pr_no, quantity, delivery_date):
+def duplicate_warning(rows, pr_no, quantity, delivery_date, *, today=None):
     """Do not silently collapse same-day events; require human confirmation."""
     qty=normalize_quantity(quantity)
-    day=normalize_delivery_date(delivery_date)
+    day=normalize_delivery_date(delivery_date,today=today)
     return any(str(r["pr_no"]) == str(pr_no)
                and Decimal(str(r["quantity"])) == qty
                and r["delivery_date"] == day
