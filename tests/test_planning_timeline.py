@@ -13,9 +13,10 @@ TODAY=date(2026,11,8)
 
 
 def row(sc="761453",pos="10",approved="25/09/26",plan=date(2026,12,15),
-        count=1,state="Completado"):
+        count=1,state="Material sin recibir",completion=None):
     return dict(company="210",sc_no=sc,sc_pos=pos,approval_raw=approved,
-                approval_distinct=count,planned_date=plan,workflow_state=state)
+                approval_distinct=count,planned_date=plan,workflow_state=state,
+                completion_date=completion)
 
 
 def test_date_parsing_iso_and_source_format_and_missing():
@@ -125,9 +126,9 @@ def test_group_reference_missing_from_snapshot_has_its_own_row():
 
 
 def test_completed_erp_and_delivered_total_have_same_visual_schedule():
-    base=row()
+    base=row(completion=date(2026,10,20))
     a=build_timeline(pd.DataFrame([{**base,"workflow_state":"Recepcion completada"}]),TODAY)
-    b=build_timeline(pd.DataFrame([{**base,"workflow_state":"Entregado total"}]),TODAY)
+    b=build_timeline(pd.DataFrame([{**base,"display_state":"Entregado total"}]),TODAY)
     assert a==b
     assert timeline_figure(a,TODAY).to_plotly_json()["data"]==timeline_figure(b,TODAY).to_plotly_json()["data"]
 
@@ -178,3 +179,81 @@ def test_position_selection_and_manage_sc_not_modified():
     assert 'with tab4:' in app and 'with tab5:' in app
     assert "hand_deliveries.clear()" in app
     assert "UPDATE core." not in app
+
+
+def test_completed_early_stops_at_erp_date_and_keeps_later_time_empty():
+    completed=build_timeline(pd.DataFrame([
+        row(state="Completado",completion=date(2026,10,20))
+    ]),TODAY)[0]
+    assert completed["completion"]==date(2026,10,20)
+    assert completed["cutoff"]==date(2026,10,20)
+    assert completed["elapsed_days"]==25
+    assert completed["remaining_days"]==0
+    assert completed["overdue_days"]==0
+    fig=timeline_figure([completed],TODAY)
+    assert {t.name for t in fig.data}=={"Transcurrido"}
+    blue=fig.data[0]
+    assert blue.base[0]=="2026-09-25"
+    assert blue.x[0]==25*86400000
+    assert fig.layout.shapes[0].x0=="2026-11-08"
+    assert "Recepción completada: 20/10/2026" in blue.customdata[0]
+
+
+def test_late_completion_red_ends_at_actual_receipt_date_not_today():
+    completed=build_timeline(pd.DataFrame([
+        row(plan=date(2026,10,15),state="Completado",
+            completion=date(2026,10,20))
+    ]),TODAY)[0]
+    assert completed["overdue_days"]==5
+    assert completed["percent"]>100
+    fig=timeline_figure([completed],TODAY)
+    red=next(t for t in fig.data if t.name=="Retraso")
+    assert red.base[0]=="2026-10-15"
+    assert red.x[0]==5*86400000
+    assert "Restante" not in {t.name for t in fig.data}
+    assert fig.layout.shapes[0].x0==TODAY.isoformat()
+
+
+def test_completed_on_plan_date_and_today_or_before_approval():
+    on_plan=build_timeline(pd.DataFrame([
+        row(plan=date(2026,10,20),state="Completado",
+            completion=date(2026,10,20))
+    ]),TODAY)[0]
+    assert on_plan["issue"] is None and on_plan["overdue_days"]==0
+    assert on_plan["remaining_days"]==0
+    assert "Retraso" not in {t.name for t in timeline_figure([on_plan],TODAY).data}
+    for bad in (date(2026,9,24),date(2026,11,9),None):
+        line=build_timeline(pd.DataFrame([
+            row(state="Completado",completion=bad)
+        ]),TODAY)[0]
+        assert line["issue"] is not None
+        assert line["cutoff"] is None
+        assert all(t.name not in ("Transcurrido","Restante","Retraso")
+                   for t in timeline_figure([line],TODAY).data)
+
+
+def test_physical_delivery_or_incomplete_erp_never_ends_timeline():
+    source=pd.DataFrame([{
+        **row(state="Material sin recibir",completion=date(2026,10,20)),
+        "display_state":"Entregado parcial",
+    }])
+    line=build_timeline(source,TODAY)[0]
+    assert line["completion"] is None
+    assert line["cutoff"]==TODAY
+    assert line["remaining_days"]==37
+
+
+def test_multiple_erp_movements_first_threshold_not_last_day_in_query():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    assert "receipt_closure.completion_date" in app
+    assert app.count("receipt_closure.completion_date")==3
+    assert "sum(coalesce(r.approved_qty,0)) OVER" in app
+    assert "r.receipt_date,r.source_line" in app
+    assert "min(ev.receipt_date) FILTER" in app
+    assert "ev.cumulative_approved>=s.requested_qty" in app
+    assert "l.allocation_status='verified'" in app
+    assert "r.approved_qty IS NOT NULL" in app
+    assert "s.approved_qty>=s.requested_qty" in app
+    assert "LEFT JOIN core.receipts r" in app
+    block=app.split('def render_planning_timeline(',1)[1].split('def render_sc_detail(',1)[0]
+    assert "query(" not in block
