@@ -27,7 +27,7 @@ def overview_display(source):
     result = pd.DataFrame(index=source.index)
     state = (source["display_state"] if "display_state" in source.columns else
              source["workflow_state"] if "workflow_state" in source.columns else
-             source["coverage_state"].map(lambda s: s))
+             source["coverage_state"])
     result[" "] = state.map(lambda s: status_icon(present_state(s)))
     result["Proyecto"] = source["project"]
     result["SC/Pos"] = [
