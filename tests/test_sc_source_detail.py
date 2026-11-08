@@ -118,7 +118,7 @@ def test_both_sc_tabs_share_new_detail_without_economic_data():
     assert 'request_detail(request_source,raw_records)' in shared
     assert "FROM core.sc_lines" in shared
     assert 'planning_detail(trace,raw_records)' in shared
-    assert 'export[["Sección","Campo","Valor"]]' in shared
+    assert "st.download_button(" not in shared
     assert "st.markdown(\"#### Recepciones\")" in shared
     assert "st.markdown(\"#### REAC\")" in shared
     assert "st.markdown(\"#### Incidencias\")" in shared
