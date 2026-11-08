@@ -125,7 +125,7 @@ workflow_ready=False
 if has_workflow_table:
     workflow_ready=bool(query("SELECT EXISTS(SELECT 1 FROM planning.sc_workflow_status WHERE snapshot_id=%s) AS ready",(sid,)).iloc[0]["ready"])
 # Reuse one SC/PO reconciliation expression in individual and grouped queries.
-po_link_summary="""
+po_link_overview="""
   LEFT JOIN LATERAL (
       SELECT string_agg(l.po_no || '/' || l.po_pos, ', '
                         ORDER BY l.po_no,l.po_pos) AS po_positions,
@@ -140,6 +140,8 @@ po_link_summary="""
       WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
         AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos
   ) linked ON true
+"""
+po_link_summary=po_link_overview+"""
   -- Indexed exact SC/position lookup, projected through the restricted view.
   -- The dates arrive in the same roundtrip as the existing overview query.
   LEFT JOIN LATERAL (
@@ -500,9 +502,21 @@ with tab3:
         if items.empty:
             st.info("Este grupo todavía no tiene SC asociadas.")
         else:
-            # Always query the selected snapshot when the user requests a report.
-            # Group records are lightweight and cached with the existing 10-min TTL.
-            if st.button("Consultar grupo",type="primary",key="group_sc_report"):
+            # Group consultation is lightweight: no PR aggregation or timeline
+            # query until the dedicated button is requested.
+            stored=st.session_state.get("bulk_result")
+            report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)
+            col_report,col_timeline=st.columns([1,1],gap="small")
+            with col_report:
+                consult_requested=st.button(
+                    "Consultar grupo",type="primary",key="group_sc_report"
+                )
+            with col_timeline:
+                timeline_requested=st.button(
+                    "Cargar cronograma",key="group_sc_load_timeline",
+                    disabled=not report_ready or consult_requested
+                )
+            if consult_requested:
                 numbers=items["sc_no"].astype(str).tolist()
                 source_table=("planning.sc_workflow_status" if workflow_ready
                               else "planning.v_sc_coverage")
@@ -510,14 +524,9 @@ with tab3:
                 group_status=query(f"""SELECT s.company,s.sc_no,s.sc_pos,s.article,
                                s.description,s.project,s.requested_qty,s.ordered_qty,
                                s.received_qty,s.approved_qty,s.{status_column},
-                               linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date,
-                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
-                    timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
-                    receipt_closure.first_receipt_date,receipt_closure.first_approved_pr_date,
-                    receipt_closure.first_approved_pr_qty,receipt_closure.receipt_events
+                               linked.po_positions,linked.planned_date
                                FROM {source_table} s
-                               """+po_link_summary+"""
+                               """+po_link_overview+"""
                                WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
                                ORDER BY s.company,s.sc_no,
                                    CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
@@ -526,7 +535,22 @@ with tab3:
                 grouped=group_overview(items,group_status)
                 group_source=group_overview_source(items,group_status)
                 st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)
+                st.session_state.pop("bulk_timeline",None)
             stored=st.session_state.get("bulk_result")
+            if timeline_requested and stored and stored[0]==sid and stored[1]==group_id:
+                numbers=items["sc_no"].astype(str).tolist()
+                source_table=("planning.sc_workflow_status" if workflow_ready
+                              else "planning.v_sc_coverage")
+                timeline_data=query(f"""SELECT s.company,s.sc_no,s.sc_pos,
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct,
+                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
+                    timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
+                    receipt_closure.receipt_events
+                    FROM {source_table} s
+                    """+po_link_summary+"""
+                    WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
+                    ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,numbers))
+                st.session_state["bulk_timeline"]=(sid,group_id,timeline_data)
             if stored and stored[0]==sid and stored[1]==group_id:
                 bulk_view=stored[2]
                 group_source=enrich_delivery_status(stored[3],sid)
@@ -545,8 +569,15 @@ with tab3:
                     on_select="rerun",selection_mode="single-row",
                     key=f"group_sc_overview_{sid}_{group_id}",
                 )
-                render_planning_timeline(group_source,madrid_today,
-                                         f"group_{sid}_{group_id}")
+                timeline_saved=st.session_state.get("bulk_timeline")
+                if (timeline_saved and timeline_saved[0]==sid
+                        and timeline_saved[1]==group_id):
+                    timeline_source=group_source.merge(
+                        timeline_saved[2],on=["company","sc_no","sc_pos"],
+                        how="left",sort=False,validate="one_to_one"
+                    )
+                    render_planning_timeline(timeline_source,madrid_today,
+                                             f"group_{sid}_{group_id}")
                 if event_group.selection.rows:
                     selected_index=event_group.selection.rows[0]
                     line=group_source.iloc[selected_index]
