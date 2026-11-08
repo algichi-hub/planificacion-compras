@@ -252,13 +252,19 @@ def test_bulk_group_rename_permission_migration_is_least_privilege():
 
 
 def test_group_sc_consult_and_timeline_have_distinct_buttons_and_queries():
-    """Plain group report never computes PR timeline or any chart."""
+    """Consultar produces the report; toggle fetches heavy PR data only if shown."""
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     block=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     assert 'st.columns([1.8,2,8],gap="small")' in block
     assert '"Consultar grupo",type="primary",key="group_sc_report"' in block
-    assert '"Cargar cronograma",key="group_sc_load_timeline"' in block
-    assert "disabled=not report_ready or consult_requested" in block
+    assert '"Ocultar cronograma" if group_showing else "Mostrar cronograma"' in block
+    assert 'key="group_sc_timeline_toggle",disabled=not report_ready' in block
+    assert 'sync_context(st.session_state,"group",(sid,group_id))' in block
+    assert 'reset_timeline(st.session_state,"group")' in block
+    assert 'toggle_timeline(st.session_state,"group")' in block
+    assert block.index('st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)') < block.index(
+        'report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)'
+    ) < block.index('with col_timeline:')
     # Heavy lateral SQL used exclusively in the optional timeline request.
     overview_sql=block.split("if consult_requested:",1)[1].split(
         "grouped=group_overview(",1
@@ -268,17 +274,15 @@ def test_group_sc_consult_and_timeline_have_distinct_buttons_and_queries():
     assert "timeline_dates." not in overview_sql
     assert "receipt_closure." not in overview_sql
     assert "st.plotly_chart" not in overview_sql
-    timeline_sql=block.split("if timeline_requested and stored",1)[1].split(
-        'st.session_state["bulk_timeline"]=',1
+    timeline_sql=block.split('if timeline_visible(st.session_state,"group") and report_ready',1)[1].split(
+        'st.session_state["group_timeline_data"]=',1
     )[0]
     assert "po_link_summary" in timeline_sql
     assert "receipt_closure.receipt_events" in timeline_sql
     assert "timeline_dates.approval_raw" in timeline_sql
     assert "if stored and stored[0]==sid and stored[1]==group_id" in block
-    assert 'st.session_state.pop("bulk_timeline",None)' in block
-    assert 'st.session_state["bulk_timeline"]=(sid,group_id,timeline_data)' in block
-    assert "timeline_saved[0]==sid" in block
-    assert "timeline_saved[1]==group_id" in block
+    assert 'st.session_state["group_timeline_data"]=timeline_data' in block
+    assert 'timeline_visible(st.session_state,"group") and timeline_saved is not None' in block
     assert "validate=\"one_to_one\"" in block
     assert 'render_planning_timeline(timeline_source,madrid_today' in block
     # Core SC report and detail selection stay present on both views.
@@ -297,4 +301,4 @@ def test_group_sql_is_split_without_changing_other_timeline_queries():
     assert "receipt_closure" not in head
     assert "planning.v_sc_source_detail" in tail
     assert "core.receipts" in tail
-    assert app.count("po_link_summary+")==3  # Seguimiento (2) + Group deferred
+    assert app.count("po_link_summary+")==2  # Seguimiento deferred + Group deferred
