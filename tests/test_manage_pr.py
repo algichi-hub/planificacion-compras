@@ -213,3 +213,33 @@ def test_nbi_migration_nullable_for_legacy_rows_and_check_constraint():
     assert '"received_by_nbi","created_by"' in app or "received_by_nbi,created_by" in app
     assert '"received_by_nbi","headerName":"Recibido por NBI"' in app
     assert "received_by_nbi=nbi" in app
+
+
+def test_manage_pr_newest_delivery_date_first_with_same_day_id_tiebreak():
+    """The grid orders ISO date values before displaying dd/mm/yyyy."""
+    import ast
+    import pandas as pd
+    from datetime import date
+    frame=pd.DataFrame([
+        {"id":8,"delivery_date":date(2026,10,31)},
+        {"id":2,"delivery_date":date(2026,11,9)},
+        {"id":7,"delivery_date":date(2026,11,9)},
+        {"id":12,"delivery_date":date(2026,11,2)},
+    ])
+    ordered=frame.sort_values(
+        ["delivery_date","id"],ascending=[False,False],kind="stable"
+    )
+    assert ordered["id"].tolist()==[7,2,12,8]
+    # Date display strings cannot be compared lexically (DD/MM/YYYY).
+    assert "31/10/2026" > "09/11/2026"
+    source=(ROOT/"app.py").read_text(encoding="utf-8")
+    pr=source.split("with tab5:",1)[1]
+    assert '"ORDER BY delivery_date DESC,id DESC"' in source
+    assert '["delivery_date","id"],ascending=[False,False],kind="stable"' in pr
+    assert '"sort":"desc"' in pr
+    assert '"comparator":JsCode(' in pr
+    assert 'Number(parts[2])*10000+' in pr
+    assert 'Number(parts[1])*100+Number(parts[0])' in pr
+    assert 'visible["delivery_date"]=visible["delivery_date"].map' in pr
+    assert 'key=f"pr_hand_delivery_grid_' in pr
+    ast.parse(source)
