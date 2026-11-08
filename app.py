@@ -12,6 +12,7 @@ from src.detail_view import (receptions_table, detail_row_style, vertical_record
                              linked_receipt_numbers, real_delivery_table)
 from src.sc_source_detail import request_detail, planning_detail
 from src.sc_overview import overview_display, overview_row_style
+from src.delivery_status import attach_delivery_status, present_state
 from src.group_sc_view import group_overview, group_overview_source
 from src.quantity_format import format_sc_quantities
 from src.bulk_sc import is_bulk_admin, write_bulk
@@ -59,6 +60,28 @@ def hand_deliveries():
         "FROM planning.pr_hand_deliveries WHERE voided_at IS NULL "
         "ORDER BY delivery_date DESC,id DESC"
     )
+
+def enrich_delivery_status(source, snapshot_id):
+    """Annotate only displayed SC positions; no writes or snapshot recomputation."""
+    ledger=hand_deliveries()
+    if source.empty or ledger.empty:
+        return attach_delivery_status(source,pd.DataFrame(),ledger)
+    numbers=tuple(sorted(set(source["sc_no"].dropna().astype(str).tolist())))
+    if not numbers:
+        return attach_delivery_status(source,pd.DataFrame(),ledger)
+    links=query("""SELECT l.company,l.sc_no,l.sc_pos,r.receipt_no,r.approved_qty,
+                  (SELECT count(*) FROM core.sc_po_links x
+                   WHERE x.snapshot_id=l.snapshot_id
+                     AND x.po_no=l.po_no AND x.po_pos=l.po_pos) AS owner_count,
+                  (SELECT count(*) FROM core.receipts x
+                   WHERE x.snapshot_id=r.snapshot_id AND x.receipt_no=r.receipt_no) AS pr_count
+                  FROM core.sc_po_links l
+                  JOIN core.receipts r ON r.snapshot_id=l.snapshot_id
+                    AND r.po_no=l.po_no AND r.po_pos=l.po_pos
+                  WHERE l.snapshot_id=%s AND l.sc_no=ANY(%s)
+                  ORDER BY l.company,l.sc_no,l.sc_pos,r.receipt_no""",
+                (int(snapshot_id),list(numbers)))
+    return attach_delivery_status(source,links,ledger)
 
 def _read_management(sql, params=()):
     with psycopg.connect(connection_string(),connect_timeout=15) as conn:
@@ -119,7 +142,7 @@ def overview_column_config():
     """Keep the exact same native column configuration in both SC views."""
     return {
         **{name: st.column_config.Column(width=None)
-           for name in ("Sol", "Ped", "Rec", "Apr")},
+           for name in ("Sol", "Ped", "Rec", "Apr", "En")},
         " ": st.column_config.ImageColumn("", width=38, pinned=True,
             help="Estado operativo SC"),
     }
@@ -265,9 +288,10 @@ with tab1:
         cancelled=int(states.loc[states.workflow_state=="SC anulada","n"].sum()) if not states.empty else 0
         complete=int(states.loc[states.workflow_state=="Completado","n"].sum()) if not states.empty else 0
         uncertain=int(states.loc[states.workflow_state=="Pendiente conciliación","n"].sum()) if not states.empty else 0
-        for col,(label,value) in zip(st.columns(4),[("Líneas SC",total),("Completadas",complete),("SC anuladas",cancelled),("Pendientes conciliación",uncertain)]):
+        for col,(label,value) in zip(st.columns(4),[("Líneas SC",total),("Recepciones completadas",complete),("SC anuladas",cancelled),("Pendientes conciliación",uncertain)]):
             col.metric(label,value)
-        st.plotly_chart(px.bar(states,x="workflow_state",y="n",title="Estado de tramitación por línea SC",labels={"workflow_state":"Estado","n":"Líneas SC"}),use_container_width=True)
+        states_display=states.assign(workflow_state=states["workflow_state"].map(present_state))
+        st.plotly_chart(px.bar(states_display,x="workflow_state",y="n",title="Estado de tramitación por línea SC",labels={"workflow_state":"Estado","n":"Líneas SC"}),use_container_width=True)
         st.caption("Las SC anuladas no se computan como pendientes de pedido. Estados basados en evidencias del snapshot.")
     else:
         st.info("Clasificación operativa pendiente de cálculo para este snapshot. Ejecuta la migración 007 y scripts/build_sc_workflow.py --snapshot ID --commit.")
@@ -312,6 +336,7 @@ with tab2:
             st.caption("PO/Pos muestra todos los pedidos asociados. fecha_plan corresponde a la fecha planificada más próxima entre ellos. Para Material sin recibir: rojo si vencida, amarillo si faltan de 0 a 7 días naturales y verde si faltan más de 7 días.")
             # Preserve the original result for exact company/SC/position lookup.
             # The displayed DataFrame adds a status-symbol column without altering selection.
+            overview=enrich_delivery_status(overview,sid)
             visible_overview=overview_display(overview)
             madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
             event=st.dataframe(
@@ -377,6 +402,11 @@ with tab3:
             stored=st.session_state.get("bulk_result")
             if stored and stored[0]==sid and stored[1]==group_id:
                 bulk_view=stored[2]
+                group_source=enrich_delivery_status(stored[3],sid)
+                bulk_view=overview_display(group_source)
+                # Unmatched manually managed SC references retain their identifier.
+                missing=group_source["sc_pos"].isna()
+                bulk_view.loc[missing,"SC/Pos"]=stored[2].loc[missing,"SC/Pos"]
                 st.caption(f"{len(items)} SC · {len(bulk_view)} posiciones o referencias")
                 madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
                 event_group=st.dataframe(
@@ -390,7 +420,6 @@ with tab3:
                 )
                 if event_group.selection.rows:
                     selected_index=event_group.selection.rows[0]
-                    group_source=stored[3]
                     line=group_source.iloc[selected_index]
                     if pd.isna(line.get("company")) or pd.isna(line.get("sc_pos")):
                         st.info("Esta SC no figura en el snapshot seleccionado; no hay detalle que consultar.")
