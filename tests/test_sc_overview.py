@@ -31,7 +31,7 @@ def test_exact_columns_in_requested_order_and_same_row_index():
     assert view["PO/Pos"].tolist()==["00321/8, 00322/1","—"]
     assert view["fecha_plan"].tolist()==["06/11/2026","—"]
     assert view.loc[11,"Rec"]==Decimal("3")
-    assert view["En"].tolist()==["—","—"]
+    assert view["Ent"].tolist()==["—","—"]
     assert view.loc[16,"estado"]=="Pendiente pedido"
     assert all(col not in view for col in ("company","coverage_pct","workflow_issue"))
 
