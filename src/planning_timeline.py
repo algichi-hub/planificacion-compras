@@ -277,13 +277,14 @@ def timeline_figure(rows, today):
         last=today+timedelta(days=7)
     padding=max(2,(last-first).days//25)
     fig.update_layout(
-        barmode="overlay",height=max(MIN_HEIGHT_PX,72+ROW_HEIGHT_PX*n),
-        margin={"l":10,"r":20,"t":32,"b":40},
+        barmode="overlay",height=max(MIN_HEIGHT_PX+42,114+ROW_HEIGHT_PX*n),
+        margin={"l":10,"r":20,"t":32,"b":82},
         showlegend=False,
         hovermode="closest",
         dragmode=False,  # Disable pan, box/lasso selection and drag-to-zoom.
         xaxis={
-            "type":"date","tickformat":"%d/%m/%Y","fixedrange":True,
+            "type":"date","tickformat":"%d/%m/%Y",
+            "tickangle":90,"fixedrange":True,
             "range":[(first-timedelta(days=padding)).isoformat(),
                      (last+timedelta(days=padding)).isoformat()],
             "showgrid":True,"gridcolor":"rgba(148,163,184,0.18)","title":None,
