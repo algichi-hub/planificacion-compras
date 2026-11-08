@@ -13,8 +13,8 @@ from src.normalize import date_es
 
 SC_ORDER = "#DC2626"
 ORDER_ORIGINAL = "#F59E0B"
-REPLAN = "#C2410C"
-RECEIPT_WAIT = "#94A3B8"
+REPLAN = "#38BDF8"
+RECEIPT_WAIT = "#CBD5E1"
 RECEIPT_APPROVAL = "#FACC15"
 RECEIPT_APPROVED = "#16A34A"
 TODAY_LINE = "#D97706"
@@ -71,9 +71,8 @@ def build_timeline(source, today):
         sc = str(record.get("sc_no") or "—")
         pos = record.get("sc_pos")
         position = "—" if pos is None or pd.isna(pos) else str(pos)
-        company = record.get("company")
-        company = "" if company is None or pd.isna(company) else str(company)
-        label = f"{sc}/{position}" + (f" · {company}" if company else "")
+        # The axis identifies SC/position; company remains in the source data.
+        label = f"{sc}/{position}"
         approval, approval_count = _distinct_day(
             record, "approval_raw", "approval_distinct"
         )
@@ -228,7 +227,7 @@ def timeline_figure(rows, today):
                 f"Desde: {left:%d/%m/%Y}<br>Hasta: {right:%d/%m/%Y}"
             )
             traces.setdefault(trace_key,[]).append((
-                y + (0.125 if band == "upper" else -0.125),
+                y + (0.13 if band == "upper" else -0.13),
                 left.isoformat(),(right-left).days*86400000, detail,
             ))
         if row["approval"]:
@@ -251,7 +250,7 @@ def timeline_figure(rows, today):
     for (name,color), data in traces.items():
         fig.add_trace(go.Bar(
             y=[v[0] for v in data], x=[v[2] for v in data],
-            base=[v[1] for v in data], orientation="h", width=0.25,
+            base=[v[1] for v in data], orientation="h", width=0.22,
             marker={"color":color}, name=name,
             customdata=[v[3] for v in data],
             hovertemplate="%{customdata}<extra></extra>",
@@ -273,9 +272,9 @@ def timeline_figure(rows, today):
         last=today+timedelta(days=7)
     padding=max(2,(last-first).days//25)
     fig.update_layout(
-        barmode="overlay",height=max(260,115+36*n),
+        barmode="overlay",height=max(200,100+27*n),
         margin={"l":10,"r":20,"t":32,"b":40},
-        legend={"orientation":"h","y":1.2,"x":0,"font":{"size":10}},
+        showlegend=False,
         hovermode="closest",
         xaxis={
             "type":"date","tickformat":"%d/%m/%Y",
