@@ -302,7 +302,7 @@ def test_empty_and_invalid_today():
 
 def test_sql_source_preserves_single_read_per_overview():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    sql=app.split('po_link_summary="""',1)[1].split('"""',1)[0]
+    sql=app.split('po_link_summary=po_link_overview+"""',1)[1].split('"""',1)[0]
     assert "jsonb_agg(jsonb_build_object(" in sql
     assert "'po_qty',ev.ordered_qty" in sql
     assert "'delivered_qty',ev.delivered_qty" in sql
@@ -310,7 +310,7 @@ def test_sql_source_preserves_single_read_per_overview():
     assert "LEFT JOIN core.receipts r" in sql
     assert sql.count("FROM planning.v_sc_source_detail v")==1
     assert "v.snapshot_id=s.snapshot_id AND v.company=s.company" in sql
-    assert app.count("receipt_closure.receipt_events")==3
+    assert app.count("receipt_closure.receipt_events")==3  # SC, Group on demand, and the SELECT itself
     assert "query(" not in app.split("def render_planning_timeline(",1)[1].split(
         "def render_sc_detail(",1
     )[0]
@@ -327,7 +327,7 @@ def test_shared_renderer_and_locked_plotly_config():
     assert "config={\"displayModeBar\":False,\"scrollZoom\":False," in block
     assert "\"doubleClick\":False,\"editable\":False" in block
     assert 'render_planning_timeline(overview,madrid_today' in app
-    assert 'render_planning_timeline(group_source,madrid_today' in app
+    assert 'render_planning_timeline(timeline_source,madrid_today' in app
     assert app.count('on_select="rerun",selection_mode="single-row"')==2
     assert app.count('render_sc_detail(line, sid, context=')==2
     assert "hand_deliveries.clear()" in app
