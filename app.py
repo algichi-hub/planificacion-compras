@@ -14,6 +14,8 @@ from src.sc_overview import overview_display, overview_row_style
 from src.group_sc_view import group_overview, group_overview_source
 from src.quantity_format import format_sc_quantities
 from src.bulk_sc import is_bulk_admin, write_bulk
+from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize_quantity,
+                                    normalize_delivery_date, duplicate_warning)
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -46,6 +48,15 @@ def group_items(group_id):
     return _read_management(
         "SELECT id,sc_no,context_description FROM planning.bulk_sc_items "
         "WHERE group_id=%s ORDER BY sc_no", (int(group_id),)
+    )
+
+@st.cache_data(ttl=600,show_spinner=False)
+def hand_deliveries():
+    """Only active manual deliveries; this cache never flushes ERP queries."""
+    return _read_management(
+        "SELECT id,pr_no,quantity,delivery_date,created_by,created_at "
+        "FROM planning.pr_hand_deliveries WHERE voided_at IS NULL "
+        "ORDER BY delivery_date DESC,id DESC"
     )
 
 def _read_management(sql, params=()):
@@ -83,7 +94,7 @@ if project!="Todos":
     where+=" AND project=%s"
     params.append(project)
 
-tab1,tab2,tab3,tab4=st.tabs(["Resumen","Seguimiento SC","Group SC","Manage"])
+tab1,tab2,tab3,tab4,tab5=st.tabs(["Resumen","Seguimiento SC","Group SC","Manage SC","Manage PR"])
 has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
 workflow_ready=False
 if has_workflow_table:
@@ -388,7 +399,7 @@ with tab3:
                         render_sc_detail(line, sid, context="group")
 
 with tab4:
-    st.subheader("Manage")
+    st.subheader("Manage SC")
     st.caption("Administración de grupos y componentes SC. Requiere acceso de administrador.")
     try:
         auth_configured=bool(st.secrets.get("auth"))
@@ -638,3 +649,180 @@ with tab4:
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                             st.error(f"No se pudo eliminar el grupo: {type(exc).__name__}")
 
+
+
+with tab5:
+    st.subheader("Manage PR")
+    st.caption("Entrega física en mano. Registro manual independiente del almacén y de las recepciones ERP.")
+    try:
+        pr_auth_configured=bool(st.secrets.get("auth"))
+        pr_admin_emails=str(st.secrets.get("BULK_ADMIN_EMAILS",""))
+        pr_admin_dsn=st.secrets.get("BULK_ADMIN_DATABASE_URL")
+    except (KeyError,FileNotFoundError):
+        pr_auth_configured=False
+        pr_admin_emails=""
+        pr_admin_dsn=None
+    pr_identity=st.user.to_dict() if pr_auth_configured else {}
+    pr_admin=is_bulk_admin(pr_identity,pr_admin_emails) and bool(pr_admin_dsn)
+    if pr_auth_configured and not pr_identity.get("is_logged_in"):
+        if st.button("Iniciar sesión con Google",key="pr_login"):
+            st.login("google")
+    if not pr_admin:
+        st.info("Manage PR requiere la misma cuenta administradora verificada que Manage SC.")
+    else:
+        @st.dialog("Confirmar entrega física")
+        def confirm_hand_delivery(pr,qty,day,warnings):
+            st.write(f"Registrar **PR {pr}**, **Qty {str(qty).replace('.', ',')}**, **{day.strftime('%d/%m/%Y')}**.")
+            for warning in warnings:
+                st.warning(warning)
+            st.caption("Esta operación no modifica el ERP ni las existencias de almacén.")
+            left,right=st.columns(2)
+            with left:
+                if st.button("Cancelar",key="pr_cancel_insert",use_container_width=True):
+                    st.rerun()
+            with right:
+                if st.button("Confirmar entrega",key="pr_confirm_insert",type="primary",
+                             use_container_width=True):
+                    try:
+                        write_hand_delivery(pr_admin_dsn,pr_identity,pr_admin_emails,"insert",
+                                            pr_no=pr,quantity=str(qty),delivery_date=day,
+                                            today=datetime.now(ZoneInfo("Europe/Madrid")).date())
+                    except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                        st.error(f"No se pudo registrar: {str(exc) if isinstance(exc,ValueError) else type(exc).__name__}")
+                    else:
+                        hand_deliveries.clear()
+                        st.session_state["pr_notice"]="Entrega física registrada."
+                        st.rerun()
+
+        @st.dialog("Anular entrega física")
+        def confirm_void_hand_delivery(entry_id,pr,qty,day):
+            st.write(f"¿Anular la entrega de **PR {pr}**, Qty **{qty}**, del **{day}**?")
+            st.caption("La entrada permanecerá en el histórico de auditoría.")
+            left,right=st.columns(2)
+            with left:
+                if st.button("Cancelar",key=f"pr_cancel_void_{entry_id}",use_container_width=True):
+                    st.rerun()
+            with right:
+                if st.button("Confirmar anulación",key=f"pr_confirm_void_{entry_id}",
+                             type="primary",use_container_width=True):
+                    try:
+                        write_hand_delivery(pr_admin_dsn,pr_identity,pr_admin_emails,"void",
+                                            entry_id=entry_id)
+                    except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                        st.error(f"No se pudo anular: {str(exc) if isinstance(exc,ValueError) else type(exc).__name__}")
+                    else:
+                        hand_deliveries.clear()
+                        st.session_state["pr_notice"]="Entrega anulada; histórico conservado."
+                        st.rerun()
+
+        @st.fragment
+        def render_hand_deliveries():
+            from src.quantity_format import format_quantity
+            if st.session_state.get("pr_notice"):
+                st.success(st.session_state.pop("pr_notice"))
+            today=datetime.now(ZoneInfo("Europe/Madrid")).date()
+            with st.form("pr_add_delivery",clear_on_submit=True):
+                a,b,c=st.columns([2,1,2],gap="small")
+                with a:
+                    entered_pr=st.text_input("PR",placeholder="Número de parte")
+                with b:
+                    entered_qty=st.text_input("Qty",placeholder="0,00")
+                with c:
+                    entered_date=st.date_input("Fecha entrega",value=today,
+                                               format="DD/MM/YYYY",max_value=today)
+                submitted=st.form_submit_button("Añadir entrega",icon=":material/add:")
+            ledger=hand_deliveries()
+            if submitted:
+                try:
+                    pr=normalize_pr(entered_pr)
+                    qty=normalize_quantity(entered_qty)
+                    day=normalize_delivery_date(entered_date,today=today)
+                    warnings=[]
+                    if duplicate_warning(ledger.to_dict("records"),pr,qty,day):
+                        warnings.append("Ya existe una entrega activa con el mismo PR, Qty y fecha. Comprueba que no es un duplicado.")
+                    # Snapshot-specific cross-check is advisory only; manual history
+                    # must survive later imports and unknown ERP PRs.
+                    erp=query("""SELECT count(*) AS n,
+                                        sum(delivered_qty) AS received_qty,
+                                        sum(approved_qty) AS approved_qty
+                                 FROM core.receipts
+                                 WHERE snapshot_id=%s AND receipt_no=%s""",(sid,pr))
+                    if not erp.empty:
+                        evidence=erp.iloc[0]
+                        if int(evidence["n"])==0:
+                            warnings.append("PR no encontrado en el snapshot seleccionado. Se registrará pendiente de conciliación.")
+                        elif int(evidence["n"])>1:
+                            warnings.append("PR con varios movimientos ERP; revisar antes de comparar cantidades.")
+                        else:
+                            from decimal import Decimal
+                            registered=sum((Decimal(str(x["quantity"])) for x in ledger.to_dict("records")
+                                            if str(x["pr_no"])==pr),Decimal("0"))
+                            approved=evidence["approved_qty"]
+                            if approved is not None and not pd.isna(approved) and registered+qty>approved:
+                                warnings.append("La cantidad acumulada entregada en mano supera la cantidad aprobada ERP del snapshot. Verifica el PR.")
+                    confirm_hand_delivery(pr,qty,day,warnings)
+                except ValueError as exc:
+                    st.error(str(exc))
+            st.markdown("**Entregas reales registradas**")
+            if ledger.empty:
+                st.caption("Sin entregas físicas registradas.")
+            else:
+                visible=ledger[["id","pr_no","quantity","delivery_date"]].copy()
+                visible["quantity"]=visible["quantity"].map(format_quantity)
+                visible["delivery_date"]=visible["delivery_date"].map(lambda x:x.strftime("%d/%m/%Y"))
+                visible.insert(0,"delete","X")
+                event_js=JsCode("""
+                    function({streamlitRerunEventTriggerName,eventData}) {
+                        if (streamlitRerunEventTriggerName!=='cellClicked' || !eventData ||
+                            !eventData.data || !eventData.column ||
+                            eventData.column.getColId()!=='delete') return null;
+                        return {id:eventData.data.id};
+                    }
+                """)
+                should_js=JsCode("""
+                    function({streamlitRerunEventTriggerName,eventData}) {
+                        return streamlitRerunEventTriggerName==='cellClicked' &&
+                          !!eventData && !!eventData.column &&
+                          eventData.column.getColId()==='delete';
+                    }
+                """)
+                options={
+                    "columnDefs":[
+                        {"field":"delete","headerName":"","width":38,"minWidth":38,"maxWidth":38,
+                         "pinned":"left","sortable":False,"resizable":False,
+                         "cellStyle":{"color":"#B91C1C","fontWeight":"700",
+                                      "textAlign":"center","cursor":"pointer",
+                                      "paddingLeft":"0","paddingRight":"0"}},
+                        {"field":"pr_no","headerName":"PR","minWidth":110,"flex":2},
+                        {"field":"quantity","headerName":"Qty","minWidth":90,"flex":1},
+                        {"field":"delivery_date","headerName":"Fecha entrega","minWidth":140,"flex":2},
+                    ],
+                    "defaultColDef":{"editable":False,"filter":False,"sortable":False,
+                                     "resizable":True},
+                    "rowHeight":32,"headerHeight":32,
+                    "getRowId":JsCode("function(p){return String(p.data.id);}"),
+                    "suppressMovableColumns":True
+                }
+                result=AgGrid(
+                    visible,gridOptions=options,
+                    height=min(480,40+len(visible)*32),
+                    theme="streamlit",allow_unsafe_jscode=True,
+                    enable_enterprise_modules=False,
+                    data_return_mode=DataReturnMode.CUSTOM,
+                    custom_jscode_for_grid_return=event_js,
+                    should_grid_return=should_js,
+                    update_on=["cellClicked"],
+                    key="pr_hand_delivery_grid",
+                    show_toolbar=False,show_search=False,show_download_button=False,
+                    server_sync_strategy="server_wins",
+                    custom_css={".ag-root-wrapper":{"borderRadius":"0px !important"}},
+                )
+                selected=result.raw_data if hasattr(result,"raw_data") else None
+                if isinstance(selected,dict) and str(selected.get("id","")).isdigit():
+                    entry=ledger.loc[ledger["id"]==int(selected["id"])]
+                    if len(entry)==1:
+                        item=entry.iloc[0]
+                        confirm_void_hand_delivery(int(item["id"]),str(item["pr_no"]),
+                                                   format_quantity(item["quantity"]),
+                                                   item["delivery_date"].strftime("%d/%m/%Y"))
+        render_hand_deliveries()
