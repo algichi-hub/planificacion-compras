@@ -232,3 +232,69 @@ def test_group_source_keeps_selection_index_and_company_position_keys():
     assert source["sc_pos"].iloc[:2].tolist()==["1","2"]
     assert pd.isna(source.iloc[2]["company"])
     assert view.iloc[2]["SC/Pos"]=="00042"
+
+
+
+def test_bulk_group_rename_permission_migration_is_least_privilege():
+    """The writer needs only group-metadata UPDATE, never ERP privileges."""
+    sql=(ROOT/"migrations/012_bulk_sc_group_update_privilege.sql").read_text(
+        encoding="utf-8"
+    ).lower()
+    assert "grant update (name, description, updated_at)" in sql
+    assert "on table planning.bulk_sc_groups to bulk_sc_writer" in sql
+    assert "grant update on " not in sql
+    assert "core." not in sql and "raw." not in sql
+    assert "grant delete" not in sql and "grant all" not in sql
+    writer=(ROOT/"src/bulk_sc.py").read_text(encoding="utf-8")
+    assert "UPDATE planning.bulk_sc_groups SET name=%s,description=%s,updated_at=now()" in writer
+    assert "WHERE id=%s RETURNING id" in writer
+    assert "INSERT INTO planning.bulk_sc_groups" in writer
+
+
+def test_group_sc_consult_and_timeline_have_distinct_buttons_and_queries():
+    """Plain group report never computes PR timeline or any chart."""
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    block=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    assert 'st.columns([1.8,2,8],gap="small")' in block
+    assert '"Consultar grupo",type="primary",key="group_sc_report"' in block
+    assert '"Cargar cronograma",key="group_sc_load_timeline"' in block
+    assert "disabled=not report_ready or consult_requested" in block
+    # Heavy lateral SQL used exclusively in the optional timeline request.
+    overview_sql=block.split("if consult_requested:",1)[1].split(
+        "grouped=group_overview(",1
+    )[0]
+    assert "po_link_overview" in overview_sql
+    assert "po_link_summary" not in overview_sql
+    assert "timeline_dates." not in overview_sql
+    assert "receipt_closure." not in overview_sql
+    assert "st.plotly_chart" not in overview_sql
+    timeline_sql=block.split("if timeline_requested and stored",1)[1].split(
+        'st.session_state["bulk_timeline"]=',1
+    )[0]
+    assert "po_link_summary" in timeline_sql
+    assert "receipt_closure.receipt_events" in timeline_sql
+    assert "timeline_dates.approval_raw" in timeline_sql
+    assert "if stored and stored[0]==sid and stored[1]==group_id" in block
+    assert 'st.session_state.pop("bulk_timeline",None)' in block
+    assert 'st.session_state["bulk_timeline"]=(sid,group_id,timeline_data)' in block
+    assert "timeline_saved[0]==sid" in block
+    assert "timeline_saved[1]==group_id" in block
+    assert "validate=\"one_to_one\"" in block
+    assert 'render_planning_timeline(timeline_source,madrid_today' in block
+    # Core SC report and detail selection stay present on both views.
+    assert 'on_select="rerun",selection_mode="single-row"' in block
+    assert 'render_sc_detail(line, sid, context="group")' in block
+    assert "write_bulk(" not in block
+
+
+def test_group_sql_is_split_without_changing_other_timeline_queries():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    head=app.split('po_link_overview="""',1)[1].split('"""',1)[0]
+    tail=app.split('po_link_summary=po_link_overview+"""',1)[1].split('"""',1)[0]
+    assert "core.sc_po_links" in head
+    assert "core.po_lines" in head
+    assert "timeline_dates" not in head
+    assert "receipt_closure" not in head
+    assert "planning.v_sc_source_detail" in tail
+    assert "core.receipts" in tail
+    assert app.count("po_link_summary+")==3  # Seguimiento (2) + Group deferred
