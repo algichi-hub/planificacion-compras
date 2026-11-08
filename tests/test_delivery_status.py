@@ -57,8 +57,8 @@ def test_no_manual_data_keeps_dash_and_renames_erp_state():
     result=attach_delivery_status(base_rows(),links(),pd.DataFrame())
     visible=overview_display(result)
     assert list(visible.columns)==list(DISPLAY_COLUMNS)
-    assert DISPLAY_COLUMNS[-2:]==("En","estado")
-    assert visible["En"].tolist()==["—","—"]
+    assert DISPLAY_COLUMNS[-2:]==("Ent","estado")
+    assert visible["Ent"].tolist()==["—","—"]
     assert visible["estado"].tolist()==[RECEIPT_COMPLETE,"Parcialmente aprobadas"]
     assert "color: #15803D" not in unquote(visible.iloc[0][" "])
 
@@ -70,11 +70,11 @@ def test_partial_handover_across_two_prs_and_partial_same_pr():
     assert result.iloc[0]["display_state"]==PARTIAL
     assert result.iloc[1]["hand_qty"] is None
     visible=overview_display(result)
-    assert visible.iloc[1]["En"]=="—"
-    assert visible.iloc[0]["En"]==Decimal("5")
+    assert visible.iloc[1]["Ent"]=="—"
+    assert visible.iloc[0]["Ent"]==Decimal("5")
     assert visible.iloc[0]["estado"]==PARTIAL
     assert "color" not in visible.iloc[0]["estado"]
-    assert format_sc_quantities(visible.style)._display_funcs[(0,visible.columns.get_loc("En"))](Decimal("5"))=="5"
+    assert format_sc_quantities(visible.style)._display_funcs[(0,visible.columns.get_loc("Ent"))](Decimal("5"))=="5"
 
 
 def test_total_only_when_all_approved_units_physically_handed_over():
@@ -131,10 +131,10 @@ def test_group_overview_inherits_en_and_states_without_changing_keys():
     items=pd.DataFrame([{"sc_no":"00071"},{"sc_no":"00099"}])
     group=group_overview(items,source)
     assert group["SC/Pos"].tolist()==["00071/10","00071/20","00099"]
-    assert group["En"].iloc[0]==Decimal("10")
+    assert group["Ent"].iloc[0]==Decimal("10")
     assert group["estado"].iloc[0]==TOTAL
     assert group["estado"].iloc[2]=="No encontrada"
-    assert group["En"].iloc[2]=="—"
+    assert group["Ent"].iloc[2]=="—"
 
 
 def test_status_glyphs_use_thumb_up_with_distinct_pink_and_purple():
@@ -159,7 +159,7 @@ def test_app_reconciles_at_view_time_and_does_not_write_erp():
     assert "bulk_view=overview_display(group_source)" in app
     assert "format_sc_quantities(visible_overview.style)" in app
     assert "format_sc_quantities(bulk_view.style)" in app
-    assert '"En"' in app
+    assert '"Ent"' in app
     assert 'st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)' in app
     assert "UPDATE core." not in app
     assert "query.clear()" not in app
