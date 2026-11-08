@@ -96,6 +96,50 @@ def receptions_table(trace):
     return pd.DataFrame(rows, columns=["Campo", "Valor"])
 
 
+
+def linked_receipt_numbers(trace):
+    """PRs of the selected SC position, never all receipts of a group/snapshot."""
+    if trace.empty or "parte_recepcion" not in trace.columns:
+        return ()
+    values = []
+    seen = set()
+    for original in trace["parte_recepcion"]:
+        if original is None or pd.isna(original):
+            continue
+        pr = str(original).strip()
+        if pr and pr not in seen:
+            seen.add(pr)
+            values.append(pr)
+    return tuple(values)
+
+
+def real_delivery_table(trace, ledger):
+    """Active manual handovers linked to selected SC by its ERP receipt numbers.
+
+    Keep every partial handover as a separate row, including repeated
+    PR/quantity/date entries. Never infer physical delivery from ERP quantities.
+    """
+    columns = ["PR", "Qty", "Fecha entrega"]
+    prs = linked_receipt_numbers(trace)
+    if not prs or ledger.empty:
+        return pd.DataFrame(columns=columns)
+    relevant = ledger.loc[ledger["pr_no"].astype(str).isin(prs)].copy()
+    if "voided_at" in relevant.columns:
+        relevant = relevant.loc[relevant["voided_at"].isna()]
+    if relevant.empty:
+        return pd.DataFrame(columns=columns)
+    order = ["delivery_date"]
+    if "id" in relevant.columns:
+        order.append("id")
+    relevant = relevant.sort_values(order, kind="stable")
+    from src.quantity_format import format_quantity
+    return pd.DataFrame({
+        "PR": relevant["pr_no"].astype(str).tolist(),
+        "Qty": [format_quantity(qty) for qty in relevant["quantity"]],
+        "Fecha entrega": [display_value(day) for day in relevant["delivery_date"]],
+    }, columns=columns)
+
+
 def detail_row_style(row, today, workflow_state=None):
     """Text-only planned-date traffic light; never color table backgrounds."""
     if row.get("Campo") in ("Fecha planificada", "Plan actual"):
