@@ -261,7 +261,7 @@ def test_group_sc_consult_and_timeline_have_distinct_buttons_and_queries():
     assert 'key="group_sc_timeline_toggle",disabled=not report_ready' in block
     assert 'sync_context(st.session_state,"group",(sid,group_id))' in block
     assert 'reset_timeline(st.session_state,"group")' in block
-    assert 'toggle_timeline(st.session_state,"group")' in block
+    assert 'on_click=toggle_timeline,args=(st.session_state,"group")' in block
     assert block.index('st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)') < block.index(
         'report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)'
     ) < block.index('with col_timeline:')
