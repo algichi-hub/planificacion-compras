@@ -463,11 +463,11 @@ with tab2:
             )
             # State belongs only to this SC and snapshot, not Group SC.
             sync_context(st.session_state,"sc",(sid,sc_number))
-            if st.button(
+            st.button(
                 "Ocultar cronograma" if timeline_visible(st.session_state,"sc")
-                else "Mostrar cronograma",key="sc_timeline_toggle"
-            ):
-                toggle_timeline(st.session_state,"sc")
+                else "Mostrar cronograma",key="sc_timeline_toggle",
+                on_click=toggle_timeline,args=(st.session_state,"sc")
+            )
             if timeline_visible(st.session_state,"sc"):
                 timeline_cached=st.session_state.get("sc_timeline_data")
                 if timeline_cached is None:
@@ -552,12 +552,11 @@ with tab3:
             report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)
             with col_timeline:
                 group_showing=timeline_visible(st.session_state,"group")
-                timeline_requested=st.button(
+                st.button(
                     "Ocultar cronograma" if group_showing else "Mostrar cronograma",
-                    key="group_sc_timeline_toggle",disabled=not report_ready
+                    key="group_sc_timeline_toggle",disabled=not report_ready,
+                    on_click=toggle_timeline,args=(st.session_state,"group")
                 )
-            if timeline_requested and report_ready:
-                toggle_timeline(st.session_state,"group")
             if timeline_visible(st.session_state,"group") and report_ready and st.session_state.get("group_timeline_data") is None:
                 numbers=items["sc_no"].astype(str).tolist()
                 source_table=("planning.sc_workflow_status" if workflow_ready
