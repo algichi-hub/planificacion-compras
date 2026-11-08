@@ -12,6 +12,7 @@ from src.detail_view import (receptions_table, detail_row_style, vertical_record
                              linked_receipt_numbers, real_delivery_table)
 from src.sc_source_detail import request_detail, planning_detail
 from src.planning_timeline import build_timeline, timeline_figure
+from src.timeline_visibility import sync_context, reset_timeline, toggle_timeline, timeline_visible
 from src.sc_overview import overview_display, overview_row_style
 from src.delivery_status import attach_delivery_status, present_state
 from src.group_sc_view import group_overview, group_overview_source
@@ -428,13 +429,8 @@ with tab2:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
                     s.workflow_state,linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date,
-                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
-                    timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
-                    receipt_closure.first_receipt_date,receipt_closure.first_approved_pr_date,
-                    receipt_closure.first_approved_pr_qty,receipt_closure.receipt_events
                     FROM planning.sc_workflow_status s
-                    """+po_link_summary+"""
+                    """+po_link_overview+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
                     ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
                       THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
@@ -442,13 +438,8 @@ with tab2:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
                     s.coverage_state,linked.po_positions,linked.planned_date,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct,receipt_closure.completion_date,
-                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
-                    timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
-                    receipt_closure.first_receipt_date,receipt_closure.first_approved_pr_date,
-                    receipt_closure.first_approved_pr_qty,receipt_closure.receipt_events
                     FROM planning.v_sc_coverage s
-                    """+po_link_summary+"""
+                    """+po_link_overview+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
                     ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
                       THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
@@ -470,7 +461,35 @@ with tab2:
                 on_select="rerun",selection_mode="single-row",
                 key=f"sc_overview_{sid}_{sc_number}",
             )
-            render_planning_timeline(overview,madrid_today,f"sc_{sid}_{sc_number}")
+            # State belongs only to this SC and snapshot, not Group SC.
+            sync_context(st.session_state,"sc",(sid,sc_number))
+            if st.button(
+                "Ocultar cronograma" if timeline_visible(st.session_state,"sc")
+                else "Mostrar cronograma",key="sc_timeline_toggle"
+            ):
+                toggle_timeline(st.session_state,"sc")
+            if timeline_visible(st.session_state,"sc"):
+                timeline_cached=st.session_state.get("sc_timeline_data")
+                if timeline_cached is None:
+                    source_table=("planning.sc_workflow_status" if workflow_ready
+                                  else "planning.v_sc_coverage")
+                    timeline_data=query(f"""SELECT s.company,s.sc_no,s.sc_pos,
+                        timeline_dates.approval_raw,timeline_dates.approval_distinct,
+                        timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
+                        timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
+                        receipt_closure.receipt_events
+                        FROM {source_table} s
+                        """+po_link_summary+"""
+                        WHERE s.snapshot_id=%s AND s.sc_no=%s
+                        ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,sc_number))
+                    st.session_state["sc_timeline_data"]=timeline_data
+                    timeline_cached=timeline_data
+                sc_timeline_source=overview.merge(
+                    timeline_cached,on=["company","sc_no","sc_pos"],
+                    how="left",sort=False,validate="one_to_one"
+                )
+                render_planning_timeline(sc_timeline_source,madrid_today,
+                                         f"sc_{sid}_{sc_number}")
             selected_rows=event.selection.rows
             if selected_rows:
                 line=overview.iloc[selected_rows[0]]
