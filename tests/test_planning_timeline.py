@@ -323,7 +323,7 @@ def test_new_celeste_and_light_gray_with_no_legend_and_compact_height():
     gray=spans(fig,"Hasta primera recepción")[0]
     assert blue.marker.color==REPLAN
     assert gray.marker.color==RECEIPT_WAIT
-    assert fig.layout.height==max(200,100+27*len(rows))
+    assert fig.layout.height==max(110,72+18*len(rows))
     assert all(t.width==0.22 for t in fig.data if t.type=="bar")
     upper=spans(fig,"SC → Pedido aprobado")[0]
     # Two bands separated by 0.04 units; not overlapping, minimal visual gap.
@@ -349,3 +349,49 @@ def test_shared_app_caption_tracks_new_colors_without_sql_or_selection_changes()
     assert "naranja oscuro" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
     assert "query(" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
     assert app.count('on_select="rerun",selection_mode="single-row"')==2
+
+
+
+@pytest.mark.parametrize("positions", [2, 3, 8, 20])
+def test_inter_sc_group_gap_is_only_a_few_pixels(positions):
+    """Bar groups remain distinct, with ~2-3 px between adjacent SCs."""
+    rows=model(*(row(pos=str(10*(i+1))) for i in range(positions)))
+    fig=timeline_figure(rows,TODAY)
+    assert fig.layout.height==max(110,72+18*positions)
+    assert fig.layout.margin.t==32
+    assert fig.layout.margin.b==40
+    pitch=fig.layout.yaxis.tickvals[0]-fig.layout.yaxis.tickvals[1]
+    assert pitch==pytest.approx(0.55)
+    assert len(fig.layout.yaxis.tickvals)==positions
+    red=spans(fig,"SC → Pedido aprobado")[0]
+    gray=spans(fig,"Hasta primera recepción")[0]
+    # Two bands per position are packed almost edge-to-edge.
+    for index in range(positions):
+        assert red.y[index]==pytest.approx(gray.y[index]+0.26)
+        assert red.width==gray.width==0.22
+        intra=red.y[index]-red.width/2-(gray.y[index]+gray.width/2)
+        assert intra==pytest.approx(0.04)
+    # Distance between lower edge of group i and upper edge of group i+1.
+    group_gap=gray.y[0]-gray.width/2 - (red.y[1]+red.width/2)
+    assert group_gap==pytest.approx(0.07)
+    chart_pixels=fig.layout.height-fig.layout.margin.t-fig.layout.margin.b
+    axis_span=fig.layout.yaxis.range[1]-fig.layout.yaxis.range[0]
+    gap_pixels=group_gap*chart_pixels/axis_span
+    assert 1.5<=gap_pixels<=3.5
+    assert fig.layout.showlegend is False
+
+
+def test_slim_single_row_and_approval_line_maintain_correct_y_coordinates():
+    single=model(row(
+        state="Completado",completion=date(2026,10,20),
+        first_receipt_date=date(2026,10,20),
+        first_approved_pr_date=date(2026,10,20),
+        first_approved_pr_qty=Decimal("100"),
+    ))
+    fig=timeline_figure(single,TODAY)
+    assert fig.layout.height==110
+    assert list(fig.layout.yaxis.tickvals)==[0]
+    assert list(fig.layout.yaxis.ticktext)==["761453/10"]
+    approval=next(t for t in fig.data if t.name=="Aprobación total en primer PR")
+    assert list(approval.y)==[-0.235,-0.015]
+    assert fig.layout.yaxis.range[0]<approval.y[0]<approval.y[1]<fig.layout.yaxis.range[1]
