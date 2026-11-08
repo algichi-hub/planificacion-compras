@@ -8,7 +8,8 @@ import psycopg
 import streamlit as st
 from st_aggrid import AgGrid, JsCode, DataReturnMode
 from src.manage_grid import parse_manage_event, valid_existing_edit, apply_draft_edit
-from src.detail_view import receptions_table, detail_row_style, vertical_records
+from src.detail_view import (receptions_table, detail_row_style, vertical_records,
+                             linked_receipt_numbers, real_delivery_table)
 from src.sc_source_detail import request_detail, planning_detail
 from src.sc_overview import overview_display, overview_row_style
 from src.group_sc_view import group_overview, group_overview_source
@@ -187,6 +188,20 @@ def render_sc_detail(line, sid, context):
                      height=min(720,35*(len(receptions)+1)+3),
                      key=f"{widget_prefix}_receptions")
         st.caption("Recepción: número (fecha, Re: cantidad recibida en admisión de entrada, Ap: cantidad aprobada tras el control de calidad). La diferencia Rec − Apr corresponde a unidades que todavía no constan como aprobadas; no implica necesariamente rechazo.")
+    st.markdown("#### Entrega real")
+    # Reuse the same independently cached manual ledger as Manage PR. Its cache
+    # is invalidated after each insertion/anulación; never modify ERP receipts.
+    related_prs=linked_receipt_numbers(trace)
+    real_deliveries=real_delivery_table(
+        trace,hand_deliveries() if related_prs else pd.DataFrame()
+    )
+    if real_deliveries.empty:
+        st.caption("Sin entregas reales registradas para los PR de esta posición SC.")
+    else:
+        st.dataframe(real_deliveries,use_container_width=True,hide_index=True,
+                     height=min(720,35*(len(real_deliveries)+1)+3),
+                     key=f"{widget_prefix}_real_delivery")
+
     # REAC is keyed to the selected SC position; it is not an operational state.
     st.markdown("#### REAC")
     reac_detail=query("""SELECT reac_no AS referencia_reac,
