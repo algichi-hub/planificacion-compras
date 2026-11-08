@@ -281,14 +281,16 @@ def timeline_figure(rows, today):
         margin={"l":10,"r":20,"t":32,"b":40},
         showlegend=False,
         hovermode="closest",
+        dragmode=False,  # Disable pan, box/lasso selection and drag-to-zoom.
         xaxis={
-            "type":"date","tickformat":"%d/%m/%Y",
+            "type":"date","tickformat":"%d/%m/%Y","fixedrange":True,
             "range":[(first-timedelta(days=padding)).isoformat(),
                      (last+timedelta(days=padding)).isoformat()],
             "showgrid":True,"gridcolor":"rgba(148,163,184,0.18)","title":None,
         },
         yaxis={
-            "type":"linear","tickvals":[ROW_PITCH*(n-i-1) for i in range(n)],
+            "type":"linear","fixedrange":True,
+            "tickvals":[ROW_PITCH*(n-i-1) for i in range(n)],
             "ticktext":[row["label"] for row in rows],
             "range":[-ROW_PITCH/2,ROW_PITCH*(n-0.5)],
             "automargin":True,"title":None,
