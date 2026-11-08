@@ -428,7 +428,7 @@ with tab2:
         if workflow_ready:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
-                    s.workflow_state,linked.po_positions,linked.planned_date,
+                    s.workflow_state,linked.po_positions,linked.planned_date
                     FROM planning.sc_workflow_status s
                     """+po_link_overview+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -437,7 +437,7 @@ with tab2:
         else:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
-                    s.coverage_state,linked.po_positions,linked.planned_date,
+                    s.coverage_state,linked.po_positions,linked.planned_date
                     FROM planning.v_sc_coverage s
                     """+po_link_overview+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
