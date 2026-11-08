@@ -119,7 +119,7 @@ def real_delivery_table(trace, ledger):
     Keep every partial handover as a separate row, including repeated
     PR/quantity/date entries. Never infer physical delivery from ERP quantities.
     """
-    columns = ["PR", "Qty", "Fecha entrega"]
+    columns = ["PR", "Qty", "Fecha entrega", "Recibido por NBI"]
     prs = linked_receipt_numbers(trace)
     if not prs or ledger.empty:
         return pd.DataFrame(columns=columns)
@@ -137,6 +137,9 @@ def real_delivery_table(trace, ledger):
         "PR": relevant["pr_no"].astype(str).tolist(),
         "Qty": [format_quantity(qty) for qty in relevant["quantity"]],
         "Fecha entrega": [display_value(day) for day in relevant["delivery_date"]],
+        "Recibido por NBI": ([display_value(nbi) for nbi in relevant["received_by_nbi"]]
+                             if "received_by_nbi" in relevant.columns
+                             else ["—"] * len(relevant)),
     }, columns=columns)
 
 
