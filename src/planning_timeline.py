@@ -70,10 +70,14 @@ def build_timeline(source, today):
         # The delivery-in-hand status is never a closure milestone; only ERP.
         source_state = record.get("workflow_state",record.get("coverage_state"))
         visual_state = record.get("display_state")
-        completed = source_state in ("Completado","Recepcion completada","complete")
-        completed = completed or visual_state in (
-            "Recepcion completada","Entregado parcial","Entregado total"
-        )
+        # The authoritative ERP workflow takes precedence over the display
+        # state (which may include manually derived physical handovers).
+        if isinstance(source_state,str) and source_state:
+            completed = source_state in ("Completado","Recepcion completada","complete")
+        else:
+            completed = visual_state in (
+                "Recepcion completada","Entregado parcial","Entregado total"
+            )
         closure = as_day(record.get("completion_date")) if completed else None
         if issue is None and completed:
             if closure is None:
