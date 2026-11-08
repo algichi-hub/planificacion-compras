@@ -1,449 +1,334 @@
-"""Two stacked SC calendar bands: ERP milestones, data quality and regression."""
+"""Single-bar ERP purchase/PR timeline: date semantics and regression."""
 from datetime import date
-from decimal import Decimal
 from pathlib import Path
+from decimal import Decimal
+import json
 
 import pandas as pd
 import pytest
 
 from src.planning_timeline import (
-    as_day, build_timeline, timeline_figure,
-    SC_ORDER, ORDER_ORIGINAL, REPLAN,
-    RECEIPT_WAIT, RECEIPT_APPROVAL, RECEIPT_APPROVED, TODAY_LINE,
+    as_day, build_timeline, receipt_milestones, timeline_figure,
+    SC_ORDER, ORDER_ORIGINAL, REPLAN, RECEIPT_WAIT,
+    PARTIAL_PR, COMPLETE_PR, TODAY_LINE, ROW_PITCH, BAR_WIDTH,
 )
 
 ROOT=Path(__file__).resolve().parents[1]
 TODAY=date(2026,11,8)
 
 
-def row(pos="10", plan=date(2026,12,15), state="Material sin recibir",
-        completion=None, **overrides):
-    result=dict(
-        company="210",sc_no="761453",sc_pos=pos,
-        approval_raw="25/09/26",approval_distinct=1,
-        po_approval_raw="10/10/26",po_approval_distinct=1,
-        original_plan_raw="30/11/26",original_plan_distinct=1,
-        planned_date=plan,workflow_state=state,
-        first_receipt_date=None,first_approved_pr_date=None,
-        first_approved_pr_qty=None,requested_qty=Decimal("100"),
-        completion_date=completion,
+def event(po="760274",pos="1",qty=20,pr=None,day=None,received=None,
+          source_line=1,verified=True):
+    return dict(
+        po_no=po,po_pos=pos,po_qty=qty,pr_no=pr,pr_date=day,
+        delivered_qty=received,source_line=source_line,
+        allocation_status="verified" if verified else "uncertain",
     )
-    result.update(overrides)
-    return result
 
 
-def model(*records):
-    return build_timeline(pd.DataFrame(records),TODAY)
+def record(pos="10",plan=date(2026,12,15),original="30/11/26",
+           order="10/10/26",approval="25/09/26",events=None,**other):
+    data={
+        "company":"210","sc_no":"761453","sc_pos":pos,
+        "approval_raw":approval,"approval_distinct":1,
+        "po_approval_raw":order,"po_approval_distinct":1,
+        "original_plan_raw":original,"original_plan_distinct":1,
+        "planned_date":plan,
+        "receipt_events":events if events is not None else
+              [event()], # An open PO without PR still counts.
+    }
+    data.update(other)
+    return data
 
 
-def spans(fig, title):
-    return [t for t in fig.data if t.type=="bar" and t.name==title]
+def model(*data):
+    return build_timeline(pd.DataFrame(data),TODAY)
 
 
-def test_date_parse_and_empty_invalid():
+def bars(fig,name):
+    return [t for t in fig.data if t.type=="bar" and t.name==name]
+
+
+def pr_lines(fig,complete):
+    target="Recepción completa" if complete else "Recepción parcial"
+    return [t for t in fig.data if t.type=="scatter" and t.name==target]
+
+
+def test_dates():
     assert as_day("25/09/26")==date(2026,9,25)
-    assert as_day("25/09/2026")==date(2026,9,25)
-    assert as_day("2026-12-15")==date(2026,12,15)
-    assert as_day(pd.Timestamp("2026-11-08T12:30:00"))==TODAY
-    for bad in (None,"","—","99/99/26","not a date"):
-        assert as_day(bad) is None
+    assert as_day("2026-09-25")==date(2026,9,25)
+    assert as_day(pd.Timestamp("2026-11-08T12:00:00"))==TODAY
+    for value in ("",None,"99/99/26","bad"):
+        assert as_day(value) is None
 
 
-def test_upper_band_red_is_stronger_than_pastel_and_periods_are_exact():
-    data=model(row())[0]
-    assert data["po_approval"]==date(2026,10,10)
-    assert data["original_plan"]==date(2026,11,30)
-    fig=timeline_figure([data],TODAY)
-    red=spans(fig,"SC → Pedido aprobado")[0]
-    orange=spans(fig,"Pedido → Plan original")[0]
-    dark=spans(fig,"Plan original → Plan actual")[0]
+def test_purchasing_intervals_and_pink_extension():
+    r=model(record())[0]
+    fig=timeline_figure([r],TODAY)
+    red=bars(fig,"SC → Pedido aprobado")[0]
+    orange=bars(fig,"Pedido → Plan original")[0]
+    pink=bars(fig,"Plan original → Plan actual")[0]
     assert red.marker.color==SC_ORDER=="#DC2626"
-    assert orange.marker.color==ORDER_ORIGINAL
-    assert dark.marker.color==REPLAN
+    assert orange.marker.color==ORDER_ORIGINAL=="#F59E0B"
+    assert pink.marker.color==REPLAN=="#F9A8D4"
     assert red.base[0]=="2026-09-25"
     assert red.x[0]==15*86400000
     assert orange.base[0]=="2026-10-10"
     assert orange.x[0]==51*86400000
-    assert dark.base[0]=="2026-11-30"
-    assert dark.x[0]==15*86400000
+    assert pink.base[0]=="2026-11-30"
+    assert pink.x[0]==15*86400000
+    assert "Desde: 30/11/2026" in pink.customdata[0]
 
 
-def test_plan_advance_omits_dark_orange_entirely():
-    fig=timeline_figure(model(row(plan=date(2026,11,12))),TODAY)
-    assert not spans(fig,"Plan original → Plan actual")
-    assert len(spans(fig,"Pedido → Plan original"))==1
+def test_advanced_current_plan_never_shows_pink():
+    fig=timeline_figure(model(record(plan=date(2026,11,12))),TODAY)
+    assert not bars(fig,"Plan original → Plan actual")
 
 
-def test_identical_original_and_current_plan_has_no_dark_orange():
-    fig=timeline_figure(model(row(plan=date(2026,11,30))),TODAY)
-    assert not spans(fig,"Plan original → Plan actual")
+def test_same_current_and_original_no_pink():
+    assert not bars(timeline_figure(model(record(plan=date(2026,11,30))),TODAY),
+                    "Plan original → Plan actual")
 
 
-def test_order_approval_missing_conflicted_or_after_original_not_faked():
-    for overrides in (
-        {"po_approval_raw":None,"po_approval_distinct":0},
-        {"po_approval_raw":"10/10/26","po_approval_distinct":2},
-        {"po_approval_raw":"01/12/26"},
-        {"po_approval_raw":"20/11/26","original_plan_raw":"01/11/26"},
-    ):
-        fig=timeline_figure(model(row(**overrides)),TODAY)
-        assert not spans(fig,"SC → Pedido aprobado") or overrides.get("po_approval_raw")=="20/11/26"
-        assert not spans(fig,"Pedido → Plan original")
+def test_open_order_grey_to_today_if_plan_already_passed():
+    data=model(record(plan=date(2026,10,20),original="15/10/26"))[0]
+    fig=timeline_figure([data],TODAY)
+    gray=bars(fig,"Pendiente de recepción")[0]
+    assert gray.marker.color==RECEIPT_WAIT=="#CBD5E1"
+    assert gray.base[0]=="2026-10-20"
+    assert gray.x[0]==19*86400000
+    assert data["completion"] is None
 
 
-def test_two_bands_share_one_sc_label_with_exactly_half_thickness():
-    fig=timeline_figure(model(row()),TODAY)
-    bar_traces=[t for t in fig.data if t.type=="bar"]
-    assert bar_traces
-    assert all(t.width==0.22 for t in bar_traces)
-    assert set(fig.layout.yaxis.ticktext)=={"761453/10"}
-    assert fig.layout.yaxis.tickvals==(0,)
-    upper=spans(fig,"SC → Pedido aprobado")[0]
-    lower=spans(fig,"Hasta primera recepción")[0]
-    assert upper.y[0]==0.13
-    assert lower.y[0]==-0.13
-    assert 0 < upper.y[0]-upper.width/2-(lower.y[0]+lower.width/2) <= 0.05
+def test_future_plan_has_no_grey_backward_fill():
+    assert not bars(timeline_figure(model(record()),TODAY),"Pendiente de recepción")
+
+
+def test_actual_multi_pr_partial_blue_and_final_green():
+    events=[
+        event(pr="757008",day="2026-04-27",received=6,source_line=21993),
+        event(pr="759676",day="2026-06-05",received=14,source_line=21994),
+    ]
+    rows=model(record(approval="01/02/26",order="11/02/26",
+                      original="08/04/26",plan=date(2026,4,8),events=events))
+    line=rows[0]
+    assert line["completion"]==date(2026,6,5)
+    assert [(m["date"],m["complete"]) for m in line["milestones"]]==[
+        (date(2026,4,27),False),(date(2026,6,5),True)
+    ]
+    fig=timeline_figure(rows,TODAY)
+    partial=pr_lines(fig,False)[0]
+    green=pr_lines(fig,True)[0]
+    assert partial.line.color==PARTIAL_PR=="#2563EB"
+    assert green.line.color==COMPLETE_PR=="#16A34A"
+    assert partial.line.width==green.line.width==4
+    assert list(partial.x[:2])==["2026-04-27","2026-04-27"]
+    assert list(green.x[:2])==["2026-06-05","2026-06-05"]
+    assert "PR 757008" in partial.customdata[0]
+    assert "recibido 6" in partial.customdata[0]
+    assert "acumulado 6 / 20" in partial.customdata[0]
+    assert "PR 759676" in green.customdata[0]
+    gray=bars(fig,"Pendiente de recepción")[0]
+    assert gray.base[0]=="2026-04-08"
+    assert gray.x[0]==58*86400000
+
+
+def test_two_pr_same_day_collapse_into_one_green_marker():
+    events=[
+        event(po="741637",pos="29",qty=21,pr="755180",
+              day="2026-03-24",received=15,source_line=20517),
+        event(po="741637",pos="29",qty=21,pr="755181",
+              day="2026-03-24",received=6,source_line=20518),
+    ]
+    rows=model(record(approval="01/02/26",order="23/03/26",
+             original="23/03/26",plan=date(2026,3,23),events=events))
+    line=rows[0]
+    assert line["completion"]==date(2026,3,24)
+    assert len(line["milestones"])==1
+    assert line["milestones"][0]["complete"]
+    fig=timeline_figure(rows,TODAY)
+    assert not pr_lines(fig,False)
+    green=pr_lines(fig,True)[0]
+    assert len(green.x)==3  # Only one vertical line, plus separator
+    assert "PR 755180" in green.customdata[0]
+    assert "PR 755181" in green.customdata[0]
+
+
+def test_one_single_full_pr_gives_only_green():
+    events=[event(pr="P100",day="2026-10-19",received=20)]
+    rows=model(record(original="10/10/26",plan=date(2026,10,12),
+             events=events))
+    assert rows[0]["completion"]==date(2026,10,19)
+    fig=timeline_figure(rows,TODAY)
+    assert not pr_lines(fig,False)
+    assert len(pr_lines(fig,True))==1
+    assert bars(fig,"Pendiente de recepción")[0].x[0]==7*86400000
+
+
+def test_partial_order_stays_open_and_grey_to_today():
+    rows=model(record(original="10/10/26",plan=date(2026,10,12),
+             events=[event(pr="P100",day="2026-10-19",received=6)]))
+    assert rows[0]["completion"] is None
+    assert len(pr_lines(timeline_figure(rows,TODAY),False))==1
+    gray=bars(timeline_figure(rows,TODAY),"Pendiente de recepción")[0]
+    assert gray.x[0]==27*86400000
+
+
+def test_all_multiple_po_lines_must_be_fully_received_to_go_green():
+    events=[
+        event(po="PO1",qty=10,pr="A",day="2026-10-10",received=10),
+        event(po="PO2",qty=6,pr="B",day="2026-10-20",received=2),
+        event(po="PO2",qty=6,pr="C",day="2026-11-02",received=4,source_line=2),
+    ]
+    rows=model(record(original="10/10/26",plan=date(2026,10,12),events=events))
+    assert rows[0]["completion"]==date(2026,11,2)
+    assert [(m["date"],m["complete"]) for m in rows[0]["milestones"]]==[
+        (date(2026,10,10),False),(date(2026,10,20),False),
+        (date(2026,11,2),True)
+    ]
+    assert len(pr_lines(timeline_figure(rows,TODAY),False))==1
+
+
+def test_multi_po_with_any_unreceived_po_no_green():
+    events=[
+        event(po="PO1",qty=10,pr="A",day="2026-10-10",received=10),
+        event(po="PO2",qty=6),
+    ]
+    rows=model(record(events=events))
+    assert rows[0]["completion"] is None
+    assert not pr_lines(timeline_figure(rows,TODAY),True)
+
+
+def test_not_quality_approval_date_ever():
+    events=[{**event(pr="P1",day="2026-10-17",received=20),
+             "approved_qty":0,"erp_status":"Libre"}]
+    rows=model(record(events=events))
+    assert rows[0]["completion"]==date(2026,10,17)
+    assert len(pr_lines(timeline_figure(rows,TODAY),True))==1
+
+
+def test_invalid_qty_unverified_or_undated_never_force_green():
+    variants=[
+        [event(qty=None,pr="X",day="2026-10-17",received=20)],
+        [event(qty=20,pr="X",day="2026-10-17",received=20,verified=False)],
+        [event(qty=20,pr="X",day="bad",received=20)],
+        [event(qty=20,pr="X",day="2026-10-17",received=None)],
+    ]
+    for events in variants:
+        markers,closed,issues=receipt_milestones(events,TODAY)
+        assert closed is None
+        assert issues
+        assert not any(m["complete"] for m in markers)
+
+
+def test_po_qty_conflict_prevents_green():
+    events=[
+        event(qty=20,pr="A",day="2026-10-17",received=10),
+        event(qty=30,pr="B",day="2026-10-20",received=20,source_line=2),
+    ]
+    _,done,problems=receipt_milestones(events,TODAY)
+    assert done is None and "Cantidad de pedido contradictoria" in problems
+
+
+def test_receipt_before_planning_horizon_stays_on_true_date():
+    events=[event(pr="P0",day="2026-10-10",received=20)]
+    rows=model(record(original="30/11/26",plan=date(2026,12,15),events=events))
+    fig=timeline_figure(rows,TODAY)
+    assert rows[0]["completion"]==date(2026,10,10)
+    assert pr_lines(fig,True)[0].x[0]=="2026-10-10"
+    assert not bars(fig,"Pendiente de recepción")
+
+
+def test_json_string_or_native_jsonb_events_equal():
+    events=[event(pr="P1",day="2026-10-17",received=20)]
+    native=receipt_milestones(events,TODAY)
+    encoded=receipt_milestones(json.dumps(events),TODAY)
+    assert native==encoded
+
+
+def test_date_source_conflicts_reported_without_invented_buy_segments():
+    rows=model(record(po_approval_distinct=2,original_plan_distinct=2),
+               record(pos="20",approval_raw=None,approval_distinct=0))
+    assert "Aprobaciones de pedido contradictorias" in rows[0]["issues"]
+    assert "Planes originales contradictorios" in rows[0]["issues"]
+    assert rows[1]["issue"]=="Sin fecha de aprobación SC válida"
+    fig=timeline_figure(rows,TODAY)
+    assert not bars(fig,"SC → Pedido aprobado")
+
+
+def test_plotly_same_compact_appearance_and_axis_180_without_year():
+    rows=model(*(record(pos=str(10*i)) for i in range(1,9)))
+    fig=timeline_figure(rows,TODAY)
+    assert fig.layout.showlegend is False
+    assert fig.layout.dragmode is False
+    assert fig.layout.xaxis.fixedrange is True
+    assert fig.layout.yaxis.fixedrange is True
+    assert fig.layout.xaxis.tickangle==180
+    assert fig.layout.xaxis.tickformat=="%d/%m"
     assert fig.layout.xaxis.type=="date"
+    assert len(fig.layout.yaxis.ticktext)==8
+    assert list(fig.layout.yaxis.ticktext)==[
+        f"761453/{10*i}" for i in range(1,9)
+    ]
+    assert fig.layout.height==max(152,114+18*8)
+    assert fig.layout.yaxis.tickvals[0]-fig.layout.yaxis.tickvals[1]==pytest.approx(ROW_PITCH)
+    red=bars(fig,"SC → Pedido aprobado")[0]
+    assert red.width==BAR_WIDTH==0.47
+    chart_px=fig.layout.height-fig.layout.margin.t-fig.layout.margin.b
+    gap=(ROW_PITCH-BAR_WIDTH)*chart_px / (
+        fig.layout.yaxis.range[1]-fig.layout.yaxis.range[0]
+    )
+    assert 1.5<=gap<=3.5
     assert fig.layout.shapes[0].x0==TODAY.isoformat()
     assert fig.layout.shapes[0].line.color==TODAY_LINE
+    assert fig.layout.hovermode=="closest"
 
 
-def test_no_receipts_gray_from_sc_approval_until_today():
-    fig=timeline_figure(model(row()),TODAY)
-    gray=spans(fig,"Hasta primera recepción")[0]
-    assert gray.marker.color==RECEIPT_WAIT
-    assert gray.base[0]=="2026-09-25"
-    assert gray.x[0]==44*86400000
-    assert not spans(fig,"Pendiente aprobación PR")
-    assert not spans(fig,"Desde primer PR aprobado")
+def test_sc_missing_from_group_keeps_empty_row():
+    rows=model(record(),{"sc_no":"999999","sc_pos":None,
+                         "approval_raw":None,"approval_distinct":None})
+    assert rows[1]["label"]=="999999/—"
+    fig=timeline_figure(rows,TODAY)
+    assert len(fig.layout.yaxis.ticktext)==2
 
 
-def test_first_pr_received_but_not_approved_yellow_through_today():
-    data=model(row(first_receipt_date=date(2026,10,15)))[0]
-    fig=timeline_figure([data],TODAY)
-    gray=spans(fig,"Hasta primera recepción")[0]
-    yellow=spans(fig,"Pendiente aprobación PR")[0]
-    assert gray.x[0]==20*86400000
-    assert yellow.marker.color==RECEIPT_APPROVAL
-    assert yellow.base[0]=="2026-10-15"
-    assert yellow.x[0]==24*86400000
-    assert not spans(fig,"Desde primer PR aprobado")
-
-
-def test_first_unapproved_pr_then_later_fully_approved_partial_pr():
-    data=model(row(
-        first_receipt_date=date(2026,10,1),
-        first_approved_pr_date=date(2026,10,12),
-        first_approved_pr_qty=Decimal("20"),
-    ))[0]
-    fig=timeline_figure([data],TODAY)
-    yellow=spans(fig,"Hasta primer PR íntegramente aprobado")[0]
-    green=spans(fig,"Desde primer PR aprobado")[0]
-    assert yellow.marker.color==RECEIPT_APPROVAL
-    assert yellow.base[0]=="2026-10-01"
-    assert yellow.x[0]==11*86400000
-    assert green.marker.color==RECEIPT_APPROVED
-    assert green.base[0]=="2026-10-12"
-    assert green.x[0]==27*86400000
-
-
-def test_multiple_partial_pr_completed_green_ends_at_verified_closure():
-    data=model(row(
-        state="Completado",completion=date(2026,10,20),
-        first_receipt_date=date(2026,10,1),
-        first_approved_pr_date=date(2026,10,1),
-        first_approved_pr_qty=Decimal("30"),
-    ))[0]
-    assert data["first_pr_full_total"] is False
-    assert data["cutoff"]==date(2026,10,20)
-    fig=timeline_figure([data],TODAY)
-    green=spans(fig,"Desde primer PR aprobado")[0]
-    assert green.base[0]=="2026-10-01"
-    assert green.x[0]==19*86400000
-    assert not any(t.type=="scatter" and t.name=="Aprobación total en primer PR"
-                   for t in fig.data)
-
-
-def test_unique_single_pr_fully_approved_is_medium_vertical_green_line():
-    data=model(row(
-        state="Completado",completion=date(2026,10,20),
-        first_receipt_date=date(2026,10,20),
-        first_approved_pr_date=date(2026,10,20),
-        first_approved_pr_qty=Decimal("100"),
-    ))[0]
-    assert data["first_pr_full_total"] is True
-    fig=timeline_figure([data],TODAY)
-    lines=[t for t in fig.data if t.type=="scatter" and
-           t.name=="Aprobación total en primer PR"]
-    assert len(lines)==1
-    assert lines[0].line.color==RECEIPT_APPROVED
-    assert lines[0].line.width==3.5
-    assert list(lines[0].x)==["2026-10-20","2026-10-20"]
-    assert not spans(fig,"Desde primer PR aprobado")
-    assert not spans(fig,"Pendiente aprobación PR")
-
-
-def test_single_pr_partially_approved_not_claimed_approved():
-    fig=timeline_figure(model(row(
-        first_receipt_date=date(2026,10,20),
-        first_approved_pr_date=None,
-        first_approved_pr_qty=None,
-    )),TODAY)
-    assert spans(fig,"Pendiente aprobación PR")
-    assert not spans(fig,"Desde primer PR aprobado")
-
-
-def test_erp_complete_with_missing_closure_does_not_extend_green_to_today():
-    data=model(row(
-        state="Completado",completion=None,
-        first_receipt_date=date(2026,10,1),
-        first_approved_pr_date=date(2026,10,1),
-        first_approved_pr_qty=Decimal("30"),
-    ))[0]
-    assert "Sin fecha verificable de recepción completada" in data["issues"]
-    assert data["cutoff"]==date(2026,10,1)
-    fig=timeline_figure([data],TODAY)
-    assert not spans(fig,"Desde primer PR aprobado")
-    assert not spans(fig,"Pendiente aprobación PR")
-
-
-def test_completed_erp_stops_receipt_band_but_not_upper_planning_dates():
-    data=model(row(
-        state="Completado",completion=date(2026,10,20),
-        first_receipt_date=date(2026,10,1),
-        first_approved_pr_date=date(2026,10,1),
-        first_approved_pr_qty=Decimal("30"),
-    ))[0]
-    fig=timeline_figure([data],TODAY)
-    assert spans(fig,"Plan original → Plan actual")
-    green=spans(fig,"Desde primer PR aprobado")[0]
-    assert date.fromisoformat(green.base[0])==date(2026,10,1)
-    assert green.x[0]==19*86400000
-
-
-def test_inconsistent_or_missing_source_dates_never_fabricated():
-    frames=[
-        row(approval_raw=None,approval_distinct=0),
-        row(approval_raw="25/09/26",approval_distinct=2),
-        row(po_approval_raw="01/12/26",original_plan_raw="01/11/26"),
-        row(first_receipt_date=date(2026,9,1)),
-        row(first_receipt_date=date(2026,10,10),
-            first_approved_pr_date=date(2026,10,1)),
-        row(plan=None),
-    ]
-    results=model(*frames)
-    assert results[0]["issue"]=="Sin fecha de aprobación SC válida"
-    assert results[1]["issue"]=="Aprobaciones SC diferentes en origen"
-    assert "Primera recepción con fecha inconsistente" in results[3]["issues"]
-    assert "Primer PR aprobado con fecha inconsistente" in results[4]["issues"]
-    fig=timeline_figure(results,TODAY)
-    assert not any(t.name in ("Aviso de retraso","Recepción fuera de plazo")
-                   for t in fig.data)
-
-
-def test_group_missing_position_is_rendered_without_invented_bar():
-    result=model(row(),{"sc_no":"700000","sc_pos":None,"company":None,
-                        "approval_distinct":None,"approval_raw":None})
-    assert result[1]["label"]=="700000/—"
-    fig=timeline_figure(result,TODAY)
-    assert len(fig.layout.yaxis.tickvals)==2
-    assert all(t.y[0]!=-0.87 for t in fig.data if t.type=="bar")
-
-
-def test_erp_workflow_precedes_manually_derived_handover_status():
-    a=model(row(state="Completado",completion=date(2026,10,20),
-                first_receipt_date=date(2026,10,1),
-                first_approved_pr_date=date(2026,10,1),
-                first_approved_pr_qty=Decimal("30")))[0]
-    b=model({**row(state="Completado",completion=date(2026,10,20),
-                first_receipt_date=date(2026,10,1),
-                first_approved_pr_date=date(2026,10,1),
-                first_approved_pr_qty=Decimal("30")),
-             "display_state":"Entregado total"})[0]
-    assert a==b
-    assert timeline_figure([a],TODAY).to_plotly_json()["data"]==timeline_figure([b],TODAY).to_plotly_json()["data"]
-
-
-def test_empty_render_and_invalid_today():
+def test_empty_and_invalid_today():
     assert build_timeline(pd.DataFrame(),TODAY)==[]
     assert len(timeline_figure([],TODAY).layout.shapes)==1
     with pytest.raises(ValueError):
-        build_timeline(pd.DataFrame(),"bad")
-    with pytest.raises(ValueError):
-        timeline_figure([],"bad")
+        build_timeline(pd.DataFrame(),"date invalid")
 
 
-def test_sql_source_efficiency_and_read_only_roles():
+def test_sql_source_preserves_single_read_per_overview():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     sql=app.split('po_link_summary="""',1)[1].split('"""',1)[0]
+    assert "jsonb_agg(jsonb_build_object(" in sql
+    assert "'po_qty',ev.ordered_qty" in sql
+    assert "'delivered_qty',ev.delivered_qty" in sql
+    assert "LEFT JOIN core.po_lines p" in sql
+    assert "LEFT JOIN core.receipts r" in sql
     assert sql.count("FROM planning.v_sc_source_detail v")==1
     assert "v.snapshot_id=s.snapshot_id AND v.company=s.company" in sql
-    assert "v.sc_no=s.sc_no AND v.sc_pos=s.sc_pos" in sql
-    assert "ix_sc_source_rows_lookup" in (ROOT/"migrations/009_sc_source_detail_view.sql").read_text()
-    assert "v.fields->>'FECHA APROBACIÓN DEL PEDIDO__41'" in sql
-    assert "v.fields->>'PEDIDO__16'=linked.plan_po_no" in sql
-    assert "v.fields->>'POSICIÓN__17'=linked.plan_po_pos" in sql
-    assert "PARTITION BY r.receipt_no" in sql
-    assert "r.delivered_qty" in sql and "r.approved_qty" in sql
-    assert "s.approved_qty>=s.requested_qty" in sql
-    assert app.count("receipt_closure.first_receipt_date,receipt_closure.first_approved_pr_date")==3
-    assert app.count("timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct")==3
-    assert "query(" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
+    assert app.count("receipt_closure.receipt_events")==3
+    assert "query(" not in app.split("def render_planning_timeline(",1)[1].split(
+        "def render_sc_detail(",1
+    )[0]
     assert "UPDATE core." not in app
-    assert 'render_planning_timeline(overview,madrid_today' in app
-    assert 'render_planning_timeline(group_source,madrid_today' in app
 
 
-def test_other_views_and_selection_remain_unchanged():
-    app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert app.count('on_select="rerun",selection_mode="single-row"')==2
-    assert app.count('render_sc_detail(line, sid, context=')==2
-    assert 'with tab4:' in app and 'with tab5:' in app
-    assert 'hand_deliveries.clear()' in app
-    code=(ROOT/"src/planning_timeline.py").read_text(encoding="utf-8")
-    for forbidden in ("triangle-up","warning_hover","icon_offset_days","Aviso de retraso"):
-        assert forbidden not in code
-
-
-
-def test_new_celeste_and_light_gray_with_no_legend_and_compact_height():
-    assert REPLAN == "#38BDF8"
-    assert RECEIPT_WAIT == "#CBD5E1"
-    rows=model(
-        row(pos="10",first_receipt_date=date(2026,10,1),
-            first_approved_pr_date=date(2026,10,12),
-            first_approved_pr_qty=Decimal("20")),
-        row(pos="20",plan=date(2026,12,20)),
-        row(pos="30",plan=date(2026,12,22)),
-    )
-    fig=timeline_figure(rows,TODAY)
-    assert fig.layout.showlegend is False
-    assert list(fig.layout.yaxis.ticktext)==["761453/10","761453/20","761453/30"]
-    blue=spans(fig,"Plan original → Plan actual")[0]
-    gray=spans(fig,"Hasta primera recepción")[0]
-    assert blue.marker.color==REPLAN
-    assert gray.marker.color==RECEIPT_WAIT
-    assert fig.layout.height==max(152,114+18*len(rows))
-    assert all(t.width==0.22 for t in fig.data if t.type=="bar")
-    upper=spans(fig,"SC → Pedido aprobado")[0]
-    # Two bands separated by 0.04 units; not overlapping, minimal visual gap.
-    gap=upper.y[0]-upper.width/2-(gray.y[0]+gray.width/2)
-    assert gap==pytest.approx(0.04)
-    assert " · " not in " ".join(fig.layout.yaxis.ticktext)
-    assert fig.layout.xaxis.type=="date"
-    assert fig.layout.shapes[0].x0==TODAY.isoformat()
-
-
-def test_no_company_in_axis_even_when_source_company_differs():
-    data=model(row(pos="10",company="210"),row(pos="20",company="310"))
-    fig=timeline_figure(data,TODAY)
-    assert list(fig.layout.yaxis.ticktext)==["761453/10","761453/20"]
-    assert all(" · " not in r["label"] for r in data)
-    assert len(data)==2
-
-
-def test_shared_app_caption_tracks_new_colors_without_sql_or_selection_changes():
-    app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert "ampliación del plan (azul celeste)" in app
-    assert "(gris claro)" in app
-    assert "naranja oscuro" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
-    assert "query(" not in app.split("def render_planning_timeline(",1)[1].split("def render_sc_detail(",1)[0]
-    assert app.count('on_select="rerun",selection_mode="single-row"')==2
-
-
-
-@pytest.mark.parametrize("positions", [2, 3, 8, 20])
-def test_inter_sc_group_gap_is_only_a_few_pixels(positions):
-    """Bar groups remain distinct, with ~2-3 px between adjacent SCs."""
-    rows=model(*(row(pos=str(10*(i+1))) for i in range(positions)))
-    fig=timeline_figure(rows,TODAY)
-    assert fig.layout.height==max(152,114+18*positions)
-    assert fig.layout.margin.t==32
-    assert fig.layout.margin.b==82
-    pitch=fig.layout.yaxis.tickvals[0]-fig.layout.yaxis.tickvals[1]
-    assert pitch==pytest.approx(0.55)
-    assert len(fig.layout.yaxis.tickvals)==positions
-    red=spans(fig,"SC → Pedido aprobado")[0]
-    gray=spans(fig,"Hasta primera recepción")[0]
-    # Two bands per position are packed almost edge-to-edge.
-    for index in range(positions):
-        assert red.y[index]==pytest.approx(gray.y[index]+0.26)
-        assert red.width==gray.width==0.22
-        intra=red.y[index]-red.width/2-(gray.y[index]+gray.width/2)
-        assert intra==pytest.approx(0.04)
-    # Distance between lower edge of group i and upper edge of group i+1.
-    group_gap=gray.y[0]-gray.width/2 - (red.y[1]+red.width/2)
-    assert group_gap==pytest.approx(0.07)
-    chart_pixels=fig.layout.height-fig.layout.margin.t-fig.layout.margin.b
-    axis_span=fig.layout.yaxis.range[1]-fig.layout.yaxis.range[0]
-    gap_pixels=group_gap*chart_pixels/axis_span
-    assert 1.5<=gap_pixels<=3.5
-    assert fig.layout.showlegend is False
-
-
-def test_slim_single_row_and_approval_line_maintain_correct_y_coordinates():
-    single=model(row(
-        state="Completado",completion=date(2026,10,20),
-        first_receipt_date=date(2026,10,20),
-        first_approved_pr_date=date(2026,10,20),
-        first_approved_pr_qty=Decimal("100"),
-    ))
-    fig=timeline_figure(single,TODAY)
-    assert fig.layout.height==152
-    assert list(fig.layout.yaxis.tickvals)==[0]
-    assert list(fig.layout.yaxis.ticktext)==["761453/10"]
-    approval=next(t for t in fig.data if t.name=="Aprobación total en primer PR")
-    assert list(approval.y)==[-0.235,-0.015]
-    assert fig.layout.yaxis.range[0]<approval.y[0]<approval.y[1]<fig.layout.yaxis.range[1]
-
-
-
-@pytest.mark.parametrize("positions", [1, 3, 20])
-def test_timeline_native_plotly_navigation_is_locked_but_hover_remains(positions):
-    figure=timeline_figure(
-        model(*(row(pos=str(i+1)) for i in range(positions))),TODAY
-    )
-    assert figure.layout.dragmode is False
-    assert figure.layout.xaxis.fixedrange is True
-    assert figure.layout.yaxis.fixedrange is True
-    assert figure.layout.hovermode=="closest"
-    assert figure.layout.showlegend is False
-    bars=[trace for trace in figure.data if trace.type=="bar"]
-    assert bars and all(trace.hovertemplate=="%{customdata}<extra></extra>"
-                        for trace in bars)
-    assert figure.layout.shapes[0].x0==TODAY.isoformat()
-
-
-def test_only_shared_timeline_plotly_chart_uses_locked_config():
+def test_shared_renderer_and_locked_plotly_config():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     block=app.split("def render_planning_timeline(",1)[1].split(
         "def render_sc_detail(",1
     )[0]
-    assert 'config={"displayModeBar":False,"scrollZoom":False,' in block
-    assert '"doubleClick":False,"editable":False' in block
-    assert 'key=f"{key}_planning_timeline"' in block
+    assert "ampliación del plan (rosa pastel)" in block
+    assert "Hitos azules: PR parciales" in block
+    assert "config={\"displayModeBar\":False,\"scrollZoom\":False," in block
+    assert "\"doubleClick\":False,\"editable\":False" in block
     assert 'render_planning_timeline(overview,madrid_today' in app
     assert 'render_planning_timeline(group_source,madrid_today' in app
-    assert app.count('config={"displayModeBar":False,"scrollZoom":False,')==1
-    assert "query(" not in block
-    assert "st.plotly_chart" in block
-
-
-
-@pytest.mark.parametrize("positions", [1, 3, 20])
-def test_date_ticks_are_vertical_with_room_and_same_plot_area(positions):
-    fig=timeline_figure(
-        model(*(row(pos=str(i+1)) for i in range(positions))),TODAY
-    )
-    assert fig.layout.xaxis.tickangle==90
-    assert fig.layout.xaxis.tickformat=="%d/%m/%Y"
-    assert fig.layout.xaxis.fixedrange is True
-    assert fig.layout.yaxis.fixedrange is True
-    assert fig.layout.dragmode is False
-    assert fig.layout.margin.b==82
-    # Increased overall height exactly compensates the larger bottom margin:
-    # no compression of the preexisting dense SC bars.
-    old_chart_height=max(110,72+18*positions)-32-40
-    new_chart_height=fig.layout.height-fig.layout.margin.t-fig.layout.margin.b
-    assert new_chart_height==old_chart_height
-    assert fig.layout.showlegend is False
+    assert app.count('on_select="rerun",selection_mode="single-row"')==2
+    assert app.count('render_sc_detail(line, sid, context=')==2
+    assert "hand_deliveries.clear()" in app
+    code=(ROOT/"src/planning_timeline.py").read_text(encoding="utf-8")
+    assert "triangle-up" not in code and "warning_hover" not in code
