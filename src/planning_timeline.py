@@ -67,6 +67,18 @@ def build_timeline(source, today):
             issue = "Sin fecha plan actual válida"
         elif plan <= approval:
             issue = "Cronología inconsistente"
+        original_distinct = record.get("original_plan_distinct")
+        try:
+            original_distinct = (int(original_distinct)
+                                 if original_distinct is not None and not pd.isna(original_distinct)
+                                 else 0)
+        except (TypeError, ValueError):
+            original_distinct = 0
+        original_plan = (as_day(record.get("original_plan_raw"))
+                         if original_distinct == 1 else None)
+        # Unknown/contradictory original plans must not be mistaken for "No".
+        plan_changed = (original_plan != plan
+                        if original_plan is not None and plan is not None else None)
         # The delivery-in-hand status is never a closure milestone; only ERP.
         source_state = record.get("workflow_state",record.get("coverage_state"))
         visual_state = record.get("display_state")
@@ -92,6 +104,7 @@ def build_timeline(source, today):
             "label": label, "approval": approval, "plan": plan,
             "completion": closure if completed and issue is None else None,
             "cutoff": cutoff if issue is None else None,
+            "original_plan": original_plan, "plan_changed": plan_changed,
             "issue": issue, "elapsed_days": bounded_elapsed,
             "remaining_days": (0 if completed else max(0,span-bounded_elapsed))
                               if issue is None else None,
@@ -151,6 +164,43 @@ def timeline_figure(rows, today):
                 customdata=[v[3] for v in data],
                 hovertemplate="%{customdata}<extra></extra>",
             ))
+    # A warning is reserved for VERIFIED late ERP completion; an open overdue
+    # position keeps its red segment but never receives this icon.
+    warnings = [r for r in rows if not r["issue"]
+                and r.get("completion") is not None and r["overdue_days"] > 0]
+    if warnings:
+        def warning_hover(row):
+            changed = row.get("plan_changed")
+            answer = ("Sí" if changed is True else "No" if changed is False
+                      else "No disponible")
+            original = row.get("original_plan")
+            original_date = (original.strftime("%d/%m/%Y")
+                             if original is not None else "No disponible")
+            return (
+                f"{row['label']}<br>"
+                f"Recepción completada fuera de plazo<br>"
+                f"Plan original: {original_date}<br>"
+                f"Plan actual: {row['plan']:%d/%m/%Y}<br>"
+                f"Recepción completada: {row['completion']:%d/%m/%Y}<br>"
+                f"Retraso: {row['overdue_days']} días naturales<br>"
+                f"Plan modificado respecto al original: {answer}"
+            )
+        # Small, resolution-independent outlined warning-like triangle with
+        # white exclamation point, hoverable at the actual closure date.
+        fig.add_trace(go.Scatter(
+            x=[r["completion"].isoformat() for r in warnings],
+            y=[r["label"] for r in warnings],
+            mode="markers+text",
+            marker={"symbol":"triangle-up","size":19,"color":OVERDUE},
+            text=["!" for _ in warnings],
+            textfont={"color":"#FFFFFF","size":11},
+            textposition="middle center",
+            name="Recepción fuera de plazo",
+            showlegend=False,
+            customdata=[warning_hover(r) for r in warnings],
+            hovertemplate="%{customdata}<extra></extra>",
+            cliponaxis=False,
+        ))
     # Include invalid positions as their own row; never fabricate dates.
     if issues:
         fig.add_trace(go.Scatter(
