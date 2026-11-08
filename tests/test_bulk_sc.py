@@ -196,8 +196,7 @@ def test_group_sc_reuses_selected_sc_detail_sections():
     assert 'group_source.iloc[selected_index]' in group
     assert 'pd.isna(line.get("company"))' in group
     assert 'widget_prefix=f"{context}_' in shared
-    assert 'key=f"{widget_prefix}_download_detail"' in shared
-    assert 'key=f"{widget_prefix}_download_receptions"' in shared
+    assert "st.download_button(" not in shared
     assert 'st.subheader(f"Detalle SC {line[\'sc_no\']} / {line[\'sc_pos\']}")' in shared
     for heading in (
         'st.markdown("#### Recepciones")',
