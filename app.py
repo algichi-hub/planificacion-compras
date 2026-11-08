@@ -234,8 +234,8 @@ def render_planning_timeline(source, today, key):
                     key=f"{key}_planning_timeline")
     missing=sum(bool(row["issue"]) for row in rows)
     st.caption("Superior: SC → pedido (rojo), pedido → plan original (naranja), "
-               "ampliación del plan (naranja oscuro). Inferior: hasta primera recepción "
-               "(gris), hasta primer PR íntegramente aprobado (amarillo) y hasta "
+               "ampliación del plan (azul celeste). Inferior: hasta primera recepción "
+               "(gris claro), hasta primer PR íntegramente aprobado (amarillo) y hasta "
                "recepción total (verde). La aprobación del PR se infiere del snapshot, "
                "no de una fecha histórica de calidad. Línea vertical: hoy (Madrid).")
     if missing:
