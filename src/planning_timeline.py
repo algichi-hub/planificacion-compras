@@ -138,7 +138,11 @@ def build_timeline(source, today):
             and first_approved_qty is not None and requested is not None
             and first_approved_qty >= requested and closure == first_receipt
         )
-        cutoff = closure if complete and closure is not None else today
+        # If an ERP-completed position lacks a verifiable close date, stop
+        # at the last known receipt milestone; never extend green to today.
+        cutoff = (closure if closure is not None else
+                  (first_approved_pr or first_receipt or approval)
+                  if complete else today)
         span = (plan - approval).days if approval and plan and plan > approval else None
         elapsed = (cutoff - approval).days if span is not None else None
         result.append({
@@ -152,7 +156,7 @@ def build_timeline(source, today):
             "elapsed_days": max(0, min(span,elapsed)) if span is not None else None,
             "remaining_days": max(0,span-elapsed) if span is not None and not complete
                               else 0 if span is not None else None,
-            "overdue_days": max(0,(cutoff-plan).days) if plan else None,
+            "overdue_days": max(0,(cutoff-plan).days) if plan and cutoff else None,
             "percent": 100*max(0,elapsed)/span if span is not None else None,
         })
     return result
