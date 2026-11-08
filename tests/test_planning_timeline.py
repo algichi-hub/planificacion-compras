@@ -128,7 +128,8 @@ def test_group_reference_missing_from_snapshot_has_its_own_row():
 def test_completed_erp_and_delivered_total_have_same_visual_schedule():
     base=row(completion=date(2026,10,20))
     a=build_timeline(pd.DataFrame([{**base,"workflow_state":"Recepcion completada"}]),TODAY)
-    b=build_timeline(pd.DataFrame([{**base,"display_state":"Entregado total"}]),TODAY)
+    b=build_timeline(pd.DataFrame([{**base,"workflow_state":"Completado",
+                                     "display_state":"Entregado total"}]),TODAY)
     assert a==b
     assert timeline_figure(a,TODAY).to_plotly_json()["data"]==timeline_figure(b,TODAY).to_plotly_json()["data"]
 
