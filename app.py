@@ -183,9 +183,19 @@ po_link_summary="""
                    AND max(ev.cumulative_approved)>=s.requested_qty
                   THEN min(ev.receipt_date) FILTER
                          (WHERE ev.cumulative_approved>=s.requested_qty)
-             END AS completion_date
+             END AS completion_date,
+             -- Raw ERP receipt events and their own PO-line quantity; one
+             -- JSON aggregate per SC, no extra database roundtrips.
+             jsonb_agg(jsonb_build_object(
+                 'po_no',ev.po_no,'po_pos',ev.po_pos,
+                 'po_qty',ev.ordered_qty,'allocation_status',ev.allocation_status,
+                 'pr_no',ev.receipt_no,'pr_date',ev.receipt_date,
+                 'delivered_qty',ev.delivered_qty,'source_line',ev.source_line
+             ) ORDER BY ev.receipt_date NULLS LAST,ev.source_line,ev.po_no,ev.po_pos
+             ) AS receipt_events
       FROM (
-          SELECT r.receipt_no,r.receipt_date,r.delivered_qty,
+          SELECT l.po_no,l.po_pos,l.allocation_status,p.ordered_qty,
+                 r.source_line,r.receipt_no,r.receipt_date,r.delivered_qty,
                  sum(coalesce(r.approved_qty,0)) OVER
                     (ORDER BY r.receipt_date,r.source_line ROWS UNBOUNDED PRECEDING)
                     AS cumulative_approved,
@@ -203,6 +213,9 @@ po_link_summary="""
                       OVER (PARTITION BY r.receipt_no)
                  ) AS pr_fully_approved
           FROM core.sc_po_links l
+          LEFT JOIN core.po_lines p
+            ON (p.snapshot_id,p.company,p.po_no,p.po_pos)=
+               (l.snapshot_id,l.company,l.po_no,l.po_pos)
           LEFT JOIN core.receipts r
             ON (r.snapshot_id,r.po_no,r.po_pos)=(l.snapshot_id,l.po_no,l.po_pos)
           WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
@@ -236,11 +249,11 @@ def render_planning_timeline(source, today, key):
                             "doubleClick":False,"editable":False},
                     key=f"{key}_planning_timeline")
     missing=sum(bool(row["issue"]) for row in rows)
-    st.caption("Superior: SC → pedido (rojo), pedido → plan original (naranja), "
-               "ampliación del plan (azul celeste). Inferior: hasta primera recepción "
-               "(gris claro), hasta primer PR íntegramente aprobado (amarillo) y hasta "
-               "recepción total (verde). La aprobación del PR se infiere del snapshot, "
-               "no de una fecha histórica de calidad. Línea vertical: hoy (Madrid).")
+    st.caption("Una barra por SC/Pos: SC → pedido (rojo), pedido → plan original "
+               "(naranja), ampliación del plan (rosa pastel) y espera de recepción "
+               "(gris claro). Hitos azules: PR parciales; hito verde: recepción "
+               "completa de las líneas de pedido vinculadas. Se utilizan cantidades "
+               "recibidas ERP, no aprobaciones de calidad. Línea vertical: hoy (Madrid).")
     if missing:
         st.caption(f"{missing} posiciones con hitos incompletos o fechas "
                    "inconsistentes; solo se representan los tramos verificables.")
@@ -417,7 +430,7 @@ with tab2:
                     timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
                     timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
                     receipt_closure.first_receipt_date,receipt_closure.first_approved_pr_date,
-                    receipt_closure.first_approved_pr_qty
+                    receipt_closure.first_approved_pr_qty,receipt_closure.receipt_events
                     FROM planning.sc_workflow_status s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -431,7 +444,7 @@ with tab2:
                     timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
                     timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
                     receipt_closure.first_receipt_date,receipt_closure.first_approved_pr_date,
-                    receipt_closure.first_approved_pr_qty
+                    receipt_closure.first_approved_pr_qty,receipt_closure.receipt_events
                     FROM planning.v_sc_coverage s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -502,7 +515,7 @@ with tab3:
                     timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
                     timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
                     receipt_closure.first_receipt_date,receipt_closure.first_approved_pr_date,
-                    receipt_closure.first_approved_pr_qty
+                    receipt_closure.first_approved_pr_qty,receipt_closure.receipt_events
                                FROM {source_table} s
                                """+po_link_summary+"""
                                WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
