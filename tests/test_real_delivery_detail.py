@@ -32,12 +32,12 @@ def test_selected_position_shows_only_its_prs_and_preserves_partial_deliveries()
     ])
     assert linked_receipt_numbers(trace)==("000715","000724")
     result=real_delivery_table(trace,ledger)
-    assert list(result.columns)==["PR","Qty","Fecha entrega"]
+    assert list(result.columns)==["PR","Qty","Fecha entrega","Recibido por NBI"]
     assert result.to_dict("records")==[
-        {"PR":"000715","Qty":"4","Fecha entrega":"06/11/2026"},
+        {"PR":"000715","Qty":"4","Fecha entrega":"06/11/2026","Recibido por NBI":"—"},
+        {"PR":"000715","Qty":"3,5","Fecha entrega":"07/11/2026","Recibido por NBI":"—"},
         {"PR":"000715","Qty":"3,5","Fecha entrega":"07/11/2026"},
-        {"PR":"000715","Qty":"3,5","Fecha entrega":"07/11/2026"},
-        {"PR":"000724","Qty":"0,25","Fecha entrega":"08/11/2026"},
+        {"PR":"000724","Qty":"0,25","Fecha entrega":"08/11/2026","Recibido por NBI":"—"},
     ]
 
 
@@ -92,3 +92,22 @@ def test_delivery_cache_is_independent_and_invalidated_by_manage_pr():
     assert "hand_deliveries.clear()" in pr
     assert "query.clear()" not in pr
     assert "UPDATE core." not in pr
+
+
+def test_nbi_always_in_real_delivery_both_views_with_missing_legacy_values():
+    trace=pd.DataFrame([{"parte_recepcion":"000715"}])
+    ledger=pd.DataFrame([
+        {"id":1,"pr_no":"000715","quantity":Decimal("2"),
+         "delivery_date":date(2026,11,7),"received_by_nbi":"00042"},
+        {"id":2,"pr_no":"000715","quantity":Decimal("3"),
+         "delivery_date":date(2026,11,8),"received_by_nbi":None},
+    ])
+    displayed=real_delivery_table(trace,ledger)
+    assert displayed.to_dict("records")==[
+        {"PR":"000715","Qty":"2","Fecha entrega":"07/11/2026","Recibido por NBI":"00042"},
+        {"PR":"000715","Qty":"3","Fecha entrega":"08/11/2026","Recibido por NBI":"—"},
+    ]
+    code=(ROOT/"app.py").read_text(encoding="utf-8")
+    assert 'render_sc_detail(line, sid, context="seguimiento")' in code
+    assert 'render_sc_detail(line, sid, context="group")' in code
+    assert 'st.dataframe(real_deliveries,use_container_width=True,hide_index=True' in code
