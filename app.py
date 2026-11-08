@@ -11,6 +11,7 @@ from src.manage_grid import parse_manage_event, valid_existing_edit, apply_draft
 from src.detail_view import (receptions_table, detail_row_style, vertical_records,
                              linked_receipt_numbers, real_delivery_table)
 from src.sc_source_detail import request_detail, planning_detail
+from src.planning_timeline import build_timeline, timeline_figure
 from src.sc_overview import overview_display, overview_row_style
 from src.delivery_status import attach_delivery_status, present_state
 from src.group_sc_view import group_overview, group_overview_source
@@ -136,6 +137,15 @@ po_link_summary="""
       WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
         AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos
   ) linked ON true
+  -- Indexed exact SC/position lookup, projected through the restricted view.
+  -- The dates arrive in the same roundtrip as the existing overview query.
+  LEFT JOIN LATERAL (
+      SELECT min(NULLIF(btrim(v.fields->>'FECHA APROBACIÓN__12'),'')) AS approval_raw,
+             count(DISTINCT NULLIF(btrim(v.fields->>'FECHA APROBACIÓN__12'),'')) AS approval_distinct
+      FROM planning.v_sc_source_detail v
+      WHERE v.snapshot_id=s.snapshot_id AND v.company=s.company
+        AND v.sc_no=s.sc_no AND v.sc_pos=s.sc_pos
+  ) timeline_dates ON true
 """
 
 def overview_column_config():
@@ -149,6 +159,22 @@ def overview_column_config():
         " ": st.column_config.ImageColumn("", width=38, pinned=True,
             help="Estado operativo SC"),
     }
+
+def render_planning_timeline(source, today, key):
+    """Same date-based schedule for SC and Group SC; no database reads."""
+    st.markdown("#### Cronograma de planificación")
+    if source.empty:
+        st.caption("Sin posiciones SC para representar.")
+        return
+    rows=build_timeline(source,today)
+    st.plotly_chart(timeline_figure(rows,today),use_container_width=True,
+                    key=f"{key}_planning_timeline")
+    missing=sum(bool(row["issue"]) for row in rows)
+    st.caption("Azul: plazo transcurrido · Gris: plazo restante · Rojo: retraso · "
+               "Línea naranja: hoy (Madrid). Solo tiempo, no avance de recepción ni entrega.")
+    if missing:
+        st.caption(f"{missing} posiciones sin cronograma fiable: datos ausentes, "
+                   "contradictorios o fechas no válidas.")
 
 def render_sc_detail(line, sid, context):
     """Read-only SC detail shared by individual and grouped views."""
@@ -317,7 +343,8 @@ with tab2:
         if workflow_ready:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
-                    s.workflow_state,linked.po_positions,linked.planned_date
+                    s.workflow_state,linked.po_positions,linked.planned_date,
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct
                     FROM planning.sc_workflow_status s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -326,7 +353,8 @@ with tab2:
         else:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
-                    s.coverage_state,linked.po_positions,linked.planned_date
+                    s.coverage_state,linked.po_positions,linked.planned_date,
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct
                     FROM planning.v_sc_coverage s
                     """+po_link_summary+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -350,6 +378,7 @@ with tab2:
                 on_select="rerun",selection_mode="single-row",
                 key=f"sc_overview_{sid}_{sc_number}",
             )
+            render_planning_timeline(overview,madrid_today,f"sc_{sid}_{sc_number}")
             selected_rows=event.selection.rows
             if selected_rows:
                 line=overview.iloc[selected_rows[0]]
@@ -391,7 +420,8 @@ with tab3:
                 group_status=query(f"""SELECT s.company,s.sc_no,s.sc_pos,s.article,
                                s.description,s.project,s.requested_qty,s.ordered_qty,
                                s.received_qty,s.approved_qty,s.{status_column},
-                               linked.po_positions,linked.planned_date
+                               linked.po_positions,linked.planned_date,
+                    timeline_dates.approval_raw,timeline_dates.approval_distinct
                                FROM {source_table} s
                                """+po_link_summary+"""
                                WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
@@ -421,6 +451,8 @@ with tab3:
                     on_select="rerun",selection_mode="single-row",
                     key=f"group_sc_overview_{sid}_{group_id}",
                 )
+                render_planning_timeline(group_source,madrid_today,
+                                         f"group_{sid}_{group_id}")
                 if event_group.selection.rows:
                     selected_index=event_group.selection.rows[0]
                     line=group_source.iloc[selected_index]
