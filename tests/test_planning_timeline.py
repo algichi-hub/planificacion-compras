@@ -395,3 +395,35 @@ def test_slim_single_row_and_approval_line_maintain_correct_y_coordinates():
     approval=next(t for t in fig.data if t.name=="Aprobación total en primer PR")
     assert list(approval.y)==[-0.235,-0.015]
     assert fig.layout.yaxis.range[0]<approval.y[0]<approval.y[1]<fig.layout.yaxis.range[1]
+
+
+
+@pytest.mark.parametrize("positions", [1, 3, 20])
+def test_timeline_native_plotly_navigation_is_locked_but_hover_remains(positions):
+    figure=timeline_figure(
+        model(*(row(pos=str(i+1)) for i in range(positions))),TODAY
+    )
+    assert figure.layout.dragmode is False
+    assert figure.layout.xaxis.fixedrange is True
+    assert figure.layout.yaxis.fixedrange is True
+    assert figure.layout.hovermode=="closest"
+    assert figure.layout.showlegend is False
+    bars=[trace for trace in figure.data if trace.type=="bar"]
+    assert bars and all(trace.hovertemplate=="%{customdata}<extra></extra>"
+                        for trace in bars)
+    assert figure.layout.shapes[0].x0==TODAY.isoformat()
+
+
+def test_only_shared_timeline_plotly_chart_uses_locked_config():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    block=app.split("def render_planning_timeline(",1)[1].split(
+        "def render_sc_detail(",1
+    )[0]
+    assert 'config={"displayModeBar":False,"scrollZoom":False,' in block
+    assert '"doubleClick":False,"editable":False' in block
+    assert 'key=f"{key}_planning_timeline"' in block
+    assert 'render_planning_timeline(overview,madrid_today' in app
+    assert 'render_planning_timeline(group_source,madrid_today' in app
+    assert app.count('config={"displayModeBar":False,"scrollZoom":False,')==1
+    assert "query(" not in block
+    assert "st.plotly_chart" in block
