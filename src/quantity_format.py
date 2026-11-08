@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from numbers import Integral, Real
 import pandas as pd
 
-SC_QUANTITY_COLUMNS = ("Sol", "Ped", "Rec", "Apr", "En")
+SC_QUANTITY_COLUMNS = ("Sol", "Ped", "Rec", "Apr", "Ent")
 
 
 def format_quantity(value):
