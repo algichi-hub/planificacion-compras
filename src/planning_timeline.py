@@ -20,6 +20,11 @@ RECEIPT_APPROVED = "#16A34A"
 TODAY_LINE = "#D97706"
 MISSING = "#64748B"
 
+# Vertical geometry: ~2.3 px between consecutive SC groups with 18 px rows.
+ROW_PITCH = 0.55
+ROW_HEIGHT_PX = 18
+MIN_HEIGHT_PX = 110
+
 # Legacy names kept for imports in independent older reports/tests, if any.
 ELAPSED = SC_ORDER
 REMAINING = RECEIPT_WAIT
@@ -216,7 +221,7 @@ def timeline_figure(rows, today):
     bounds = [today]
     n = len(rows)
     for i, row in enumerate(rows):
-        y = n - i - 1
+        y = ROW_PITCH * (n - i - 1)
         for band, name, left, right, color in _segments(row, today):
             if right <= left:
                 continue
@@ -272,7 +277,7 @@ def timeline_figure(rows, today):
         last=today+timedelta(days=7)
     padding=max(2,(last-first).days//25)
     fig.update_layout(
-        barmode="overlay",height=max(200,100+27*n),
+        barmode="overlay",height=max(MIN_HEIGHT_PX,72+ROW_HEIGHT_PX*n),
         margin={"l":10,"r":20,"t":32,"b":40},
         showlegend=False,
         hovermode="closest",
@@ -283,9 +288,10 @@ def timeline_figure(rows, today):
             "showgrid":True,"gridcolor":"rgba(148,163,184,0.18)","title":None,
         },
         yaxis={
-            "type":"linear","tickvals":[n-i-1 for i in range(n)],
+            "type":"linear","tickvals":[ROW_PITCH*(n-i-1) for i in range(n)],
             "ticktext":[row["label"] for row in rows],
-            "range":[-0.5,max(0.5,n-0.5)],"automargin":True,"title":None,
+            "range":[-ROW_PITCH/2,ROW_PITCH*(n-0.5)],
+            "automargin":True,"title":None,
             "showgrid":False,"zeroline":False,
         },
     )
