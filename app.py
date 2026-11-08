@@ -679,6 +679,7 @@ with tab5:
             left,right=st.columns(2)
             with left:
                 if st.button("Cancelar",key="pr_cancel_insert",use_container_width=True):
+                    st.session_state["pr_grid_revision"]=st.session_state.get("pr_grid_revision",0)+1
                     st.rerun()
             with right:
                 if st.button("Confirmar entrega",key="pr_confirm_insert",type="primary",
@@ -691,6 +692,7 @@ with tab5:
                         st.error(f"No se pudo registrar: {str(exc) if isinstance(exc,ValueError) else type(exc).__name__}")
                     else:
                         hand_deliveries.clear()
+                        st.session_state["pr_grid_revision"]=st.session_state.get("pr_grid_revision",0)+1
                         st.session_state["pr_notice"]="Entrega física registrada."
                         st.rerun()
 
@@ -701,6 +703,7 @@ with tab5:
             left,right=st.columns(2)
             with left:
                 if st.button("Cancelar",key=f"pr_cancel_void_{entry_id}",use_container_width=True):
+                    st.session_state["pr_grid_revision"]=st.session_state.get("pr_grid_revision",0)+1
                     st.rerun()
             with right:
                 if st.button("Confirmar anulación",key=f"pr_confirm_void_{entry_id}",
@@ -712,6 +715,7 @@ with tab5:
                         st.error(f"No se pudo anular: {str(exc) if isinstance(exc,ValueError) else type(exc).__name__}")
                     else:
                         hand_deliveries.clear()
+                        st.session_state["pr_grid_revision"]=st.session_state.get("pr_grid_revision",0)+1
                         st.session_state["pr_notice"]="Entrega anulada; histórico conservado."
                         st.rerun()
 
@@ -738,7 +742,7 @@ with tab5:
                     qty=normalize_quantity(entered_qty)
                     day=normalize_delivery_date(entered_date,today=today)
                     warnings=[]
-                    if duplicate_warning(ledger.to_dict("records"),pr,qty,day):
+                    if duplicate_warning(ledger.to_dict("records"),pr,qty,day,today=today):
                         warnings.append("Ya existe una entrega activa con el mismo PR, Qty y fecha. Comprueba que no es un duplicado.")
                     # Snapshot-specific cross-check is advisory only; manual history
                     # must survive later imports and unknown ERP PRs.
@@ -812,7 +816,7 @@ with tab5:
                     custom_jscode_for_grid_return=event_js,
                     should_grid_return=should_js,
                     update_on=["cellClicked"],
-                    key="pr_hand_delivery_grid",
+                    key=f"pr_hand_delivery_grid_{st.session_state.get('pr_grid_revision',0)}",
                     show_toolbar=False,show_search=False,show_download_button=False,
                     server_sync_strategy="server_wins",
                     custom_css={".ag-root-wrapper":{"borderRadius":"0px !important"}},
