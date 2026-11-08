@@ -251,10 +251,13 @@ def _segments(row, today):
         # When the plan moves earlier, the orange original-plan segment stays
         # visible. Begin grey after that segment, never paint over orange.
         grey_start = plan
-        if (order is not None and original is not None
-                and start <= order <= today and original >= order
-                and plan < original):
-            grey_start = original
+        # Plotly overlay draws grey after red/orange/pink. Never start grey
+        # before the right edge of an existing purchasing segment, otherwise
+        # it visually hides real SC-to-PO days (e.g. SC 761488: 01-14 Oct).
+        if order is not None and start <= order <= today:
+            grey_start = max(grey_start, order)
+            if original is not None and original >= order:
+                grey_start = max(grey_start, original)
         end = row["completion"] or today
         if end > grey_start:
             yield ("Pendiente de recepción",grey_start,end,RECEIPT_WAIT)
