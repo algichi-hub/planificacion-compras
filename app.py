@@ -142,7 +142,10 @@ def overview_column_config():
     """Keep the exact same native column configuration in both SC views."""
     return {
         **{name: st.column_config.Column(width=None)
-           for name in ("Sol", "Ped", "Rec", "Apr", "Ent")},
+           for name in ("Sol", "Ped", "Rec", "Apr")},
+        # "Ent" contains numeric Decimals and the no-data dash; explicitly
+        # right-align this mixed-type column like the other quantities.
+        "Ent": st.column_config.Column(width=None, alignment="right"),
         " ": st.column_config.ImageColumn("", width=38, pinned=True,
             help="Estado operativo SC"),
     }
