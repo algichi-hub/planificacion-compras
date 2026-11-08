@@ -10,7 +10,7 @@ from src.planned_date_style import planned_date_style
 
 DISPLAY_COLUMNS = (
     " ", "Proyecto", "SC/Pos", "PO/Pos", "article", "description",
-    "fecha_plan", "Sol", "Ped", "Rec", "Apr", "En", "estado",
+    "fecha_plan", "Sol", "Ped", "Rec", "Apr", "Ent", "estado",
 )
 
 
@@ -52,9 +52,9 @@ def overview_display(source):
     # Styler.format. Replace missing *display* values only; keep Decimal entries
     # and the source data unchanged for calculations and reconciliation.
     if "hand_qty" in source.columns:
-        result["En"] = source["hand_qty"].where(source["hand_qty"].notna(), "—")
+        result["Ent"] = source["hand_qty"].where(source["hand_qty"].notna(), "—")
     else:
-        result["En"] = "—"
+        result["Ent"] = "—"
     result["estado"] = state.map(present_state)
     return result.loc[:, list(DISPLAY_COLUMNS)]
 
