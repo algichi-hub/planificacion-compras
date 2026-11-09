@@ -23,6 +23,7 @@ from src.bulk_sc import is_bulk_admin, write_bulk
 from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize_quantity,
                                     normalize_delivery_date, normalize_nbi, duplicate_warning)
 from src.pr_batch_import import parse_pr_batch, batch_digest, batch_warnings, insert_pr_batch
+from src.pr_traceability import PR_RELATIONS_SQL, resolve_pr_relations
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -1079,6 +1080,20 @@ with tab5:
                 visible=ledger.sort_values(
                     ["delivery_date","id"],ascending=[False,False],kind="stable"
                 )[["id","pr_no","quantity","delivery_date","received_by_nbi"]].copy()
+                # Read the latest validated ERP snapshot regardless of the user's
+                # historical selection in the rest of the dashboard.
+                current_erp_snapshot=latest_snapshot_id(available_snapshots())
+                pr_numbers=tuple(sorted(set(visible["pr_no"].astype(str))))
+                try:
+                    relation_frame=query(PR_RELATIONS_SQL,(current_erp_snapshot,list(pr_numbers)))
+                    resolved=resolve_pr_relations(pr_numbers,relation_frame.to_dict("records"))
+                except (psycopg.Error,KeyError,ValueError):
+                    st.warning("Trazabilidad no disponible; se muestran los datos manuales.")
+                    resolved={pr:{"Description":"—","Proyecto":"—","Pedido/pos":"—",
+                                  "Proveedor":"—","Observaciones":"Consulta de trazabilidad no disponible"}
+                              for pr in pr_numbers}
+                for column in ("Description","Proyecto","Pedido/pos","Proveedor","Observaciones"):
+                    visible[column]=visible["pr_no"].astype(str).map(lambda pr:resolved[pr][column])
                 visible["received_by_nbi"]=visible["received_by_nbi"].fillna("—").astype(str)
                 visible["quantity"]=visible["quantity"].map(format_quantity)
                 visible["delivery_date"]=visible["delivery_date"].map(lambda x:x.strftime("%d/%m/%Y"))
@@ -1107,6 +1122,12 @@ with tab5:
                                       "paddingLeft":"0","paddingRight":"0"}},
                         {"field":"pr_no","headerName":"PR","minWidth":110,"flex":2},
                         {"field":"quantity","headerName":"Qty","minWidth":90,"flex":1},
+                        {"field":"Description","headerName":"Description","minWidth":280,"flex":4,
+                         "tooltipField":"Description"},
+                        {"field":"Proyecto","headerName":"Proyecto","minWidth":110,"flex":1},
+                        {"field":"Pedido/pos","headerName":"Pedido/pos","minWidth":120,"flex":1.3},
+                        {"field":"Proveedor","headerName":"Proveedor (nombre)","minWidth":230,"flex":3,
+                         "tooltipField":"Proveedor"},
                         {"field":"delivery_date","headerName":"Fecha entrega","minWidth":140,"flex":2,
                          "sortable":True,"sort":"desc",
                          "comparator":JsCode("""
@@ -1121,7 +1142,9 @@ with tab5:
                                 return order(a)-order(b);
                             }
                          """)},
-                        {"field":"received_by_nbi","headerName":"Recibido por NBI","minWidth":140,"flex":2},
+                        {"field":"received_by_nbi","headerName":"NBI","minWidth":95,"flex":1},
+                        {"field":"Observaciones","headerName":"Observaciones","minWidth":260,"flex":3,
+                         "tooltipField":"Observaciones"},
                     ],
                     "defaultColDef":{"editable":False,"filter":False,"sortable":False,
                                      "resizable":True},
