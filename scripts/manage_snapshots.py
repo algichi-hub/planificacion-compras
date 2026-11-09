@@ -15,6 +15,7 @@ import psycopg
 
 # Order respects the actual foreign-key dependencies.
 CHILD_TABLES = (
+    "planning.sc_workflow_status",
     "core.sc_po_links",
     "core.reac_refs",
     "core.receipts",
@@ -71,7 +72,7 @@ def delete_snapshot(conn, snapshot_id, confirmation=None):
             cur.execute("SELECT id FROM audit.snapshots WHERE state='validated' "
                         "ORDER BY snapshot_date DESC,id DESC LIMIT 1")
             latest=cur.fetchone()
-            if latest and latest[0]==snapshot_id:
+            if execute and latest and latest[0]==snapshot_id:
                 raise ValueError("Cannot delete the latest validated snapshot; import a newer snapshot first.")
             counts = count_snapshot_rows(cur, snapshot_id)
             show_plan(snapshot_id, meta, counts)
