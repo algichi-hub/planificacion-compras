@@ -16,6 +16,7 @@ from src.timeline_visibility import sync_context, reset_timeline, toggle_timelin
 from src.sc_overview import overview_display, overview_row_style
 from src.delivery_status import attach_delivery_status, present_state
 from src.group_sc_view import group_overview, group_overview_source
+from src.group_statistics import group_statistics
 from src.quantity_format import format_sc_quantities
 from src.bulk_sc import is_bulk_admin, write_bulk
 from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize_quantity,
@@ -503,7 +504,7 @@ except psycopg.Error:
 
 with tab3:
     st.subheader("Group SC")
-    st.caption("Consulta e informes de grupos SC. Los estados y cantidades corresponden al snapshot seleccionado.")
+    st.caption("Estadística de compras, recepción y aprobación por SC. Los datos corresponden al snapshot seleccionado.")
     if groups.empty:
         st.info("Todavía no hay grupos SC disponibles.")
     else:
@@ -515,20 +516,15 @@ with tab3:
         if str(group_record["description"] or "").strip():
             st.caption(str(group_record["description"]))
         items=group_items(group_id)
-        st.dataframe(items[["sc_no","context_description"]].rename(columns={
-            "sc_no":"SC","context_description":"Descripción contextual"
-        }),hide_index=True,use_container_width=True)
         if items.empty:
             st.info("Este grupo todavía no tiene SC asociadas.")
         else:
-            # Independent group state: a new group/snapshot hides the chart.
-            sync_context(st.session_state,"group",(sid,group_id))
-            col_report,col_timeline,_=st.columns([1.8,2,8],gap="small")
-            with col_report:
-                consult_requested=st.button(
-                    "Consultar grupo",type="primary",key="group_sc_report"
-                )
-            if consult_requested:
+            # No group table, detailed report or PR timeline on initial view.
+            # The summary query is only made after clicking Estadística.
+            group_key=(sid,group_id,tuple(items["sc_no"].astype(str).tolist()))
+            stats_saved=st.session_state.get("group_statistics_result")
+            stats_ready=bool(stats_saved and stats_saved[0]==group_key)
+            if st.button("Estadística",type="primary",key="group_sc_statistics"):
                 numbers=items["sc_no"].astype(str).tolist()
                 source_table=("planning.sc_workflow_status" if workflow_ready
                               else "planning.v_sc_coverage")
@@ -544,66 +540,54 @@ with tab3:
                                    CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
                                        THEN btrim(s.sc_pos)::numeric END NULLS LAST,
                                    s.sc_pos""",(sid,numbers))
-                grouped=group_overview(items,group_status)
-                group_source=group_overview_source(items,group_status)
-                st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)
-                reset_timeline(st.session_state,"group")
-            stored=st.session_state.get("bulk_result")
-            report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)
-            with col_timeline:
-                group_showing=timeline_visible(st.session_state,"group")
-                st.button(
-                    "Ocultar cronograma" if group_showing else "Mostrar cronograma",
-                    key="group_sc_timeline_toggle",disabled=not report_ready,
-                    on_click=toggle_timeline,args=(st.session_state,"group")
+                st.session_state["group_statistics_result"]=(group_key,group_status)
+                st.session_state.pop("bulk_result",None)
+                stats_saved=st.session_state["group_statistics_result"]
+                stats_ready=True
+            if stats_ready:
+                today_madrid=datetime.now(ZoneInfo("Europe/Madrid")).date()
+                stat_table=group_statistics(items,stats_saved[1],today_madrid)
+                st.dataframe(
+                    stat_table,hide_index=True,use_container_width=True,
+                    column_config={
+                        "Num SC":st.column_config.TextColumn("Num SC",width="small"),
+                        "Descripción contextual":st.column_config.TextColumn(
+                            "Descripción contextual",width="large"
+                        ),
+                        **{name:st.column_config.TextColumn(name,width="small")
+                           for name in ("Pend PO","Pass Date","Full Received","Full Approved")},
+                    },
+                    key=f"group_stats_{sid}_{group_id}",
                 )
-            if timeline_visible(st.session_state,"group") and report_ready and st.session_state.get("group_timeline_data") is None:
-                numbers=items["sc_no"].astype(str).tolist()
-                source_table=("planning.sc_workflow_status" if workflow_ready
-                              else "planning.v_sc_coverage")
-                timeline_data=query(f"""SELECT s.company,s.sc_no,s.sc_pos,
-                    timeline_dates.approval_raw,timeline_dates.approval_distinct,
-                    timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
-                    timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
-                    receipt_closure.receipt_events
-                    FROM {source_table} s
-                    """+po_link_summary+"""
-                    WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
-                    ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,numbers))
-                st.session_state["group_timeline_data"]=timeline_data
-            if stored and stored[0]==sid and stored[1]==group_id:
-                bulk_view=stored[2]
-                group_source=enrich_delivery_status(stored[3],sid)
-                bulk_view=overview_display(group_source)
-                # Unmatched manually managed SC references retain their identifier.
-                missing=group_source["sc_pos"].isna()
-                bulk_view.loc[missing,"SC/Pos"]=stored[2].loc[missing,"SC/Pos"]
-                st.caption(f"{len(items)} SC · {len(bulk_view)} posiciones o referencias")
-                madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
-                event_group=st.dataframe(
-                    format_sc_quantities(bulk_view.style).apply(
-                        overview_row_style,axis=1,today=madrid_today
-                    ),
-                    hide_index=True,use_container_width=True,
-                    column_config=overview_column_config(),
-                    on_select="rerun",selection_mode="single-row",
-                    key=f"group_sc_overview_{sid}_{group_id}",
-                )
-                timeline_saved=st.session_state.get("group_timeline_data")
-                if report_ready and timeline_visible(st.session_state,"group") and timeline_saved is not None:
-                    timeline_source=group_source.merge(
-                        timeline_saved,on=["company","sc_no","sc_pos"],
-                        how="left",sort=False,validate="one_to_one"
+                # Only this second action reveals the detailed position report.
+                if st.button("Consultar grupo",key="group_sc_report"):
+                    group_source=group_overview_source(items,stats_saved[1])
+                    grouped=group_overview(items,stats_saved[1])
+                    st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)
+                stored=st.session_state.get("bulk_result")
+                if stored and stored[0]==sid and stored[1]==group_id:
+                    group_source=enrich_delivery_status(stored[3],sid)
+                    bulk_view=overview_display(group_source)
+                    # Preserve identifiers of SC absent from the snapshot.
+                    missing=group_source["sc_pos"].isna()
+                    bulk_view.loc[missing,"SC/Pos"]=stored[2].loc[missing,"SC/Pos"]
+                    st.caption(f"{len(items)} SC · {len(bulk_view)} posiciones o referencias")
+                    event_group=st.dataframe(
+                        format_sc_quantities(bulk_view.style).apply(
+                            overview_row_style,axis=1,today=today_madrid
+                        ),
+                        hide_index=True,use_container_width=True,
+                        column_config=overview_column_config(),
+                        on_select="rerun",selection_mode="single-row",
+                        key=f"group_sc_overview_{sid}_{group_id}",
                     )
-                    render_planning_timeline(timeline_source,madrid_today,
-                                             f"group_{sid}_{group_id}")
-                if event_group.selection.rows:
-                    selected_index=event_group.selection.rows[0]
-                    line=group_source.iloc[selected_index]
-                    if pd.isna(line.get("company")) or pd.isna(line.get("sc_pos")):
-                        st.info("Esta SC no figura en el snapshot seleccionado; no hay detalle que consultar.")
-                    else:
-                        render_sc_detail(line, sid, context="group")
+                    if event_group.selection.rows:
+                        selected_index=event_group.selection.rows[0]
+                        line=group_source.iloc[selected_index]
+                        if pd.isna(line.get("company")) or pd.isna(line.get("sc_pos")):
+                            st.info("Esta SC no figura en el snapshot seleccionado; no hay detalle que consultar.")
+                        else:
+                            render_sc_detail(line, sid, context="group")
 
 with tab4:
     st.subheader("Manage SC")
