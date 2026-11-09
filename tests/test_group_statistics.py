@@ -156,3 +156,16 @@ def test_group_frontend_has_stats_only_and_sc_timeline_unchanged():
     assert group.count("query(")==1
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
     assert "stats_saved[0]==group_key" in group
+
+
+def test_pass_date_does_not_mark_operatively_completed_line_as_overdue():
+    # Contradictory ERP totals require audit, but "completed" must not
+    # become an open reception deadline simply because a source qty differs.
+    source=pd.DataFrame([
+        entry("1","10","Completado",10,5,10,10,date(2026,11,1)),
+        entry("1","20","Material sin recibir",10,5,10,0,date(2026,11,1)),
+    ])
+    row=group_statistics(items("1"),source,TODAY).iloc[0]
+    assert row["Pass Date"]=="1/2"
+    assert row["Full Received"]=="0/2"
+    assert row["Full Approved"]=="1/2"
