@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 
 import pandas as pd
 
-COLUMNS = ("Num SC", "Descripción contextual", "Pend PO", "Pass Date",
+COLUMNS = ("Num SC", "PO asociados", "Descripción contextual", "Pend PO", "Pass Date",
            "Full Received", "Full Approved")
 CANCELLED = frozenset(("SC anulada", "Línea SC anulada", "cancelled"))
 PENDING_PO = frozenset(("Pendiente pedido", "pending_order", "no_approved_coverage"))
@@ -37,6 +37,26 @@ def _day(raw):
         except ValueError:
             return None
     return None
+
+
+def _associated_po(scoped):
+    """Unique PO numbers (not positions) across all SC positions.
+
+    Reuse reconciled po_positions from the existing Group SC query; never
+    duplicate a PO because it has several positions or receipts.
+    """
+    numbers=set()
+    for record in scoped:
+        value=record.get("po_positions")
+        if value is None or pd.isna(value):
+            continue
+        for pair in str(value).split(","):
+            pair=pair.strip()
+            if "/" in pair:
+                po=pair.split("/",1)[0].strip()
+                if po and po.isdecimal() and int(po)>0:
+                    numbers.add(po)
+    return ", ".join(sorted(numbers,key=lambda po:(int(po),po))) if numbers else "—"
 
 
 def group_statistics(items: pd.DataFrame, source: pd.DataFrame, today: date) -> pd.DataFrame:
@@ -79,13 +99,14 @@ def group_statistics(items: pd.DataFrame, source: pd.DataFrame, today: date) -> 
         seen_sc.add(sc)
         desc = member.get("context_description")
         row = {"Num SC":sc,
+               "PO asociados":_associated_po(by_sc.get(sc, [])),
                "Descripción contextual": "" if desc is None or pd.isna(desc) else str(desc)}
         scoped = by_sc.get(sc, [])
         if not scoped:
-            row.update({name:"—" for name in COLUMNS[2:]})
+            row.update({name:"—" for name in COLUMNS[3:]})
             output.append(row)
             continue
-        counts = dict.fromkeys(COLUMNS[2:], 0)
+        counts = dict.fromkeys(COLUMNS[3:], 0)
         total = len(scoped)
         for record in scoped:
             status = record[state_field]
