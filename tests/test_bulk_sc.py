@@ -120,7 +120,7 @@ def test_group_sc_report_does_not_render_status_counts_summary():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     assert 'format_sc_quantities(bulk_view.style).apply(' in group_part
-    assert 'overview_row_style,axis=1,today=madrid_today' in group_part
+    assert 'overview_row_style,axis=1,today=today_madrid' in group_part
     assert 'column_config=overview_column_config()' in group_part
     assert 'grouped=group_overview(items,group_status)' in group_part
     assert 'linked.po_positions,linked.planned_date' in group_part
