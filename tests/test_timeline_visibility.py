@@ -96,27 +96,17 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     assert "po_link_summary" not in before_toggle
     assert "render_planning_timeline(" not in before_toggle
 
-    assert 'sync_context(st.session_state,"group",(sid,group_id))' in group
-    assert '"Consultar grupo",type="primary",key="group_sc_report"' in group
-    assert '"Ocultar cronograma" if group_showing else "Mostrar cronograma"' in group
-    assert "disabled=not report_ready" in group
-    assert 'reset_timeline(st.session_state,"group")' in group
-    assert 'on_click=toggle_timeline,args=(st.session_state,"group")' in group
-    assert 'if timeline_requested and report_ready:' not in group
+    # Group SC has no timeline, but the initial view is still lazy.
+    assert 'st.button("Estadística",type="primary",key="group_sc_statistics")' in group
+    assert 'if stats_ready:' in group
+    assert 'if st.button("Consultar grupo",key="group_sc_report"):' in group
+    assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
     assert group.count("po_link_overview")==1
-    assert group.count("po_link_summary")==1
-    assert group.index('st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)') < group.index(
-        'report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)'
-    ) < group.index('with col_timeline:')
-    assert group.index('if timeline_visible(st.session_state,"group") and report_ready') < group.index(
-        'timeline_data=query(f"""SELECT s.company,s.sc_no,s.sc_pos,'
-    )
-    assert "render_planning_timeline(" in group
-    assert group.count("render_planning_timeline(")==1
+    assert "po_link_summary" not in group
+    assert "render_planning_timeline(" not in group
+    assert "group_timeline" not in group
     assert 'render_sc_detail(line, sid, context="group")' in group
     assert 'render_sc_detail(line, sid, context="seguimiento")' in sc
-
-
 
 def test_sc_lightweight_sql_has_no_dangling_select_comma():
     """Regression: SC 761452 crashed with SQL syntax error near FROM.
@@ -146,21 +136,21 @@ def test_sc_lightweight_sql_has_no_dangling_select_comma():
         assert "timeline_dates" not in statement
 
 
-def test_group_lightweight_sql_does_not_have_dangling_comma():
+def test_group_statistics_sql_does_not_have_dangling_comma():
     from pathlib import Path
     import re
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(
         encoding="utf-8"
     )
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    overview=group.split("if consult_requested:",1)[1].split(
-        "grouped=group_overview(",1
+    overview=group.split('if st.button("Estadística"',1)[1].split(
+        'st.session_state["group_statistics_result"]',1
     )[0]
     assert re.search(
-        r"linked\.planned_date\s*FROM\s+\{source_table\}",
+        r"linked\\.planned_date\\s*FROM\\s+\\{source_table\\}",
         overview,re.IGNORECASE
     )
-    assert not re.search(r",\s*FROM\s+",overview,re.IGNORECASE)
+    assert not re.search(r",\\s*FROM\\s+",overview,re.IGNORECASE)
 
 
 def test_button_caption_matches_visible_state_on_every_callback():
