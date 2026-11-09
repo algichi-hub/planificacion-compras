@@ -102,7 +102,7 @@ def available_snapshots():
     """
     return _read_management(
         "SELECT id,snapshot_date,state FROM audit.snapshots "
-        "WHERE state IN ('active','validated') "
+        "WHERE state='validated' "
         "ORDER BY snapshot_date DESC NULLS LAST,id DESC"
     )
 
@@ -120,11 +120,14 @@ if snapshots.empty:
     st.info("Base vacía. Ejecuta desde tu ordenador el importador de los tres CSV y activa el snapshot validado.")
     st.stop()
 
-snapshots["label"]=snapshots.apply(lambda r:f"{r['snapshot_date']} · {r['state']} · #{r['id']}",axis=1)
-# Default to the newest eligible date, regardless of whether state is
-# active or validated. The user's explicit sidebar choice still takes priority.
+latest_id=latest_snapshot_id(snapshots)
+snapshots["label"]=snapshots.apply(
+    lambda r:f"{r['snapshot_date']} · #{r['id']}" +
+             (" (Vigente)" if int(r['id'])==latest_id else ""),axis=1)
+# The latest validated snapshot is the default. Streamlit preserves a user's
+# explicit selection while the selector remains mounted.
 snapshot_ids=snapshots["id"].astype(int).tolist()
-default_idx=snapshot_ids.index(latest_snapshot_id(snapshots))
+default_idx=snapshot_ids.index(latest_id)
 sid=int(st.sidebar.selectbox("Snapshot",snapshot_ids,index=default_idx,
                              format_func=lambda x:snapshots.loc[snapshots.id==x,"label"].iloc[0]))
 st.sidebar.caption("Los filtros consultan únicamente el snapshot elegido.")
