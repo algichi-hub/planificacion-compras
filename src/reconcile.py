@@ -10,7 +10,7 @@ def parse_sc(row):
         "description":v(9),"project":v(1),"centre":v(2),"director":v(3),
         "requested":decimal_es(v(11)),"required":date_es(v(13)),
         "po_no":v(16),"po_pos":v(17),"ordered":decimal_es(v(19)),
-        "vendor":v(23),"planned":date_es(v(27)), "reac":v(14), "reac_article":v(15),
+        "vendor":v(23),"vendor_name":v(24),"planned":date_es(v(27)), "reac":v(14), "reac_article":v(15),
     }
 
 def parse_receipt(row):
@@ -75,4 +75,8 @@ def summarize_po(records):
     for key,rows in groups.items():
         vals={r["ordered"] for r in rows}
         qty=next(iter(vals)) if len(vals)==1 else None
-        yield key,rows[0],qty,"verified" if len(vals)==1 and qty is not None else "ambiguous_ordered_qty"
+        sample=rows[0].copy()
+        names={r.get("vendor_name","").strip() for r in rows if r.get("vendor_name","").strip()}
+        sample["vendor_name"]=next(iter(names)) if len(names)==1 else None
+        sample["vendor_name_count"]=len(names)
+        yield key,sample,qty,"verified" if len(vals)==1 and qty is not None else "ambiguous_ordered_qty"
