@@ -52,10 +52,14 @@ def parse_pr_batch(text, *, today=None):
 
 def batch_digest(records):
     """Stable digest for equivalent decimal representations and date spellings."""
+    # Sorting makes a re-paste in a different order the same logical batch,
+    # while retaining duplicate rows (multiplicity) in the digest.
+    normalized = sorted(
+        [pr, str(qty.normalize()), day.isoformat(), nbi]
+        for pr, qty, day, nbi in records
+    )
     encoded = json.dumps(
-        [[pr, str(qty.normalize()), day.isoformat(), nbi]
-         for pr, qty, day, nbi in records],
-        ensure_ascii=False, separators=(",", ":"),
+        normalized, ensure_ascii=False, separators=(",", ":"),
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
 
