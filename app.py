@@ -19,6 +19,7 @@ from src.group_sc_view import group_overview, group_overview_source
 from src.group_statistics import group_statistics
 from src.snapshot_selection import latest_snapshot_id
 from src.quantity_format import format_sc_quantities
+from src.sc_csv_export import sc_overview_csv
 from src.bulk_sc import is_bulk_admin, write_bulk
 from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize_quantity,
                                     normalize_delivery_date, normalize_nbi, duplicate_warning)
@@ -156,6 +157,21 @@ po_link_overview="""
   LEFT JOIN LATERAL (
       SELECT string_agg(l.po_no || '/' || l.po_pos, ', '
                         ORDER BY l.po_no,l.po_pos) AS po_positions,
+             -- Deduplicated ERP PRs, aggregated on the exact SC/PO links.
+             -- No per-row Python queries, and no PO row-multiplication.
+             (SELECT string_agg(pr.pr_no, ', ' ORDER BY pr.first_date NULLS LAST,pr.pr_no)
+              FROM (
+                 SELECT r.receipt_no::text AS pr_no,
+                        min(r.receipt_date) AS first_date
+                 FROM core.sc_po_links lr
+                 JOIN core.receipts r
+                   ON r.snapshot_id=lr.snapshot_id
+                  AND r.po_no=lr.po_no AND r.po_pos=lr.po_pos
+                 WHERE lr.snapshot_id=s.snapshot_id AND lr.company=s.company
+                   AND lr.sc_no=s.sc_no AND lr.sc_pos=s.sc_pos
+                   AND r.receipt_no IS NOT NULL
+                 GROUP BY r.receipt_no
+              ) pr) AS pr_numbers,
              min(p.planned_date) AS planned_date,
              -- Deterministic PO/position for the earliest current plan.
              (array_agg(l.po_no ORDER BY p.planned_date NULLS LAST,l.po_no,l.po_pos))[1] AS plan_po_no,
@@ -252,6 +268,15 @@ po_link_summary=po_link_overview+"""
       ) ev
   ) receipt_closure ON true
 """
+
+def sc_export_button(view, filename, key):
+    """Export already loaded rows; this action does not query Neon."""
+    st.download_button(
+        "Exportar CSV", data=sc_overview_csv(view),
+        file_name=filename, mime="text/csv; charset=utf-8",
+        key=key, use_container_width=False,
+    )
+
 
 def overview_column_config():
     """Keep the exact same native column configuration in both SC views."""
@@ -458,7 +483,7 @@ with tab2:
         if workflow_ready:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
-                    s.workflow_state,linked.po_positions,linked.planned_date
+                    s.workflow_state,linked.po_positions,linked.planned_date,linked.pr_numbers
                     FROM planning.sc_workflow_status s
                     """+po_link_overview+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -467,7 +492,7 @@ with tab2:
         else:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
-                    s.coverage_state,linked.po_positions,linked.planned_date
+                    s.coverage_state,linked.po_positions,linked.planned_date,linked.pr_numbers
                     FROM planning.v_sc_coverage s
                     """+po_link_overview+"""
                     WHERE s.snapshot_id=%s AND s.sc_no=%s
@@ -491,6 +516,9 @@ with tab2:
                 on_select="rerun",selection_mode="single-row",
                 key=f"sc_overview_{sid}_{sc_number}",
             )
+            sc_export_button(visible_overview,
+                             f"seguimiento_sc_{sc_number}_snapshot_{sid}.csv",
+                             f"export_sc_{sid}_{sc_number}")
             # State belongs only to this SC and snapshot, not Group SC.
             sync_context(st.session_state,"sc",(sid,sc_number))
             st.button(
@@ -567,7 +595,7 @@ with tab3:
                 group_status=query(f"""SELECT s.company,s.sc_no,s.sc_pos,s.article,
                                s.description,s.project,s.requested_qty,s.ordered_qty,
                                s.received_qty,s.approved_qty,s.{status_column},
-                               linked.po_positions,linked.planned_date
+                               linked.po_positions,linked.planned_date,linked.pr_numbers
                                FROM {source_table} s
                                """+po_link_overview+"""
                                WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
@@ -617,6 +645,9 @@ with tab3:
                         on_select="rerun",selection_mode="single-row",
                         key=f"group_sc_overview_{sid}_{group_id}",
                     )
+                    sc_export_button(bulk_view,
+                                     f"group_sc_{group_id}_snapshot_{sid}.csv",
+                                     f"export_group_{sid}_{group_id}")
                     if event_group.selection.rows:
                         selected_index=event_group.selection.rows[0]
                         line=group_source.iloc[selected_index]
