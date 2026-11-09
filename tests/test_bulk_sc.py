@@ -251,41 +251,24 @@ def test_bulk_group_rename_permission_migration_is_least_privilege():
     assert "INSERT INTO planning.bulk_sc_groups" in writer
 
 
-def test_group_sc_consult_and_timeline_have_distinct_buttons_and_queries():
-    """Consultar produces the report; toggle fetches heavy PR data only if shown."""
+def test_group_sc_statistics_and_detail_are_explicitly_requested():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     block=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert 'st.columns([1.8,2,8],gap="small")' in block
-    assert '"Consultar grupo",type="primary",key="group_sc_report"' in block
-    assert '"Ocultar cronograma" if group_showing else "Mostrar cronograma"' in block
-    assert 'key="group_sc_timeline_toggle",disabled=not report_ready' in block
-    assert 'sync_context(st.session_state,"group",(sid,group_id))' in block
-    assert 'reset_timeline(st.session_state,"group")' in block
-    assert 'on_click=toggle_timeline,args=(st.session_state,"group")' in block
-    assert block.index('st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)') < block.index(
-        'report_ready=bool(stored and stored[0]==sid and stored[1]==group_id)'
-    ) < block.index('with col_timeline:')
-    # Heavy lateral SQL used exclusively in the optional timeline request.
-    overview_sql=block.split("if consult_requested:",1)[1].split(
-        "grouped=group_overview(",1
-    )[0]
-    assert "po_link_overview" in overview_sql
-    assert "po_link_summary" not in overview_sql
-    assert "timeline_dates." not in overview_sql
-    assert "receipt_closure." not in overview_sql
-    assert "st.plotly_chart" not in overview_sql
-    timeline_sql=block.split('if timeline_visible(st.session_state,"group") and report_ready',1)[1].split(
-        'st.session_state["group_timeline_data"]=',1
-    )[0]
-    assert "po_link_summary" in timeline_sql
-    assert "receipt_closure.receipt_events" in timeline_sql
-    assert "timeline_dates.approval_raw" in timeline_sql
-    assert "if stored and stored[0]==sid and stored[1]==group_id" in block
-    assert 'st.session_state["group_timeline_data"]=timeline_data' in block
-    assert 'timeline_visible(st.session_state,"group") and timeline_saved is not None' in block
-    assert "validate=\"one_to_one\"" in block
-    assert 'render_planning_timeline(timeline_source,madrid_today' in block
-    # Core SC report and detail selection stay present on both views.
+    assert 'st.button("Estadística",type="primary",key="group_sc_statistics")' in block
+    assert 'if st.button("Consultar grupo",key="group_sc_report"):' in block
+    assert block.index('st.button("Estadística"') < block.index(
+        "st.dataframe(\n                    stat_table"
+    ) < block.index('st.button("Consultar grupo"')
+    assert 'stat_table=group_statistics(items,stats_saved[1],today_madrid)' in block
+    assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in block
+    assert 'stats_ready=bool(stats_saved and stats_saved[0]==group_key)' in block
+    assert 'st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)' in block
+    assert "po_link_overview" in block
+    for forbidden in ("po_link_summary","receipt_closure.","timeline_dates.",
+                      "render_planning_timeline(","Cargar cronograma",
+                      "Mostrar cronograma","Ocultar cronograma",
+                      "group_timeline_data","group_sc_timeline_toggle"):
+        assert forbidden not in block
     assert 'on_select="rerun",selection_mode="single-row"' in block
     assert 'render_sc_detail(line, sid, context="group")' in block
     assert "write_bulk(" not in block
@@ -301,4 +284,4 @@ def test_group_sql_is_split_without_changing_other_timeline_queries():
     assert "receipt_closure" not in head
     assert "planning.v_sc_source_detail" in tail
     assert "core.receipts" in tail
-    assert app.count("po_link_summary+")==2  # Seguimiento deferred + Group deferred
+    assert app.count("po_link_summary+")==1  # Exclusively Seguimiento SC deferred
