@@ -572,6 +572,7 @@ with tab3:
                     stat_table,hide_index=True,use_container_width=True,
                     column_config={
                         "Num SC":st.column_config.TextColumn("Num SC",width="small"),
+                        "PO asociados":st.column_config.TextColumn("PO asociados",width="medium"),
                         "Descripción contextual":st.column_config.TextColumn(
                             "Descripción contextual",width="large"
                         ),
