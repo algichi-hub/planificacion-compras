@@ -109,7 +109,8 @@ def group_statistics(items: pd.DataFrame, source: pd.DataFrame, today: date) -> 
                 counts["Pend PO"] += 1
             # No outstanding reception after the full received quantity.
             plan_date = _day(record["planned_date"])
-            if (not cancelled and not full_received and ordered is not None
+            if (not cancelled and not full_received and not full_approved
+                    and ordered is not None
                     and ordered > 0 and plan_date is not None
                     and plan_date < today):
                 counts["Pass Date"] += 1
