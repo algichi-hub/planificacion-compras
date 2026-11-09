@@ -40,11 +40,11 @@ def test_all_four_kpis_count_sc_positions_as_integers():
     result=group_statistics(items("761451"),source,TODAY)
     assert list(result.columns)==list(COLUMNS)
     assert result.iloc[0].to_dict()=={
-        "Num SC":"761451","Descripción contextual":"Descripción 761451",
+        "Num SC":"761451","PO asociados":"—","Descripción contextual":"Descripción 761451",
         "Pend PO":"1/6","Pass Date":"1/6",
         "Full Received":"2/6","Full Approved":"1/6",
     }
-    assert all(isinstance(result.iloc[0][col],str) for col in COLUMNS[2:])
+    assert all(isinstance(result.iloc[0][col],str) for col in COLUMNS[3:])
 
 
 def test_full_receipt_independent_of_approval_and_zero_qty():
@@ -82,8 +82,9 @@ def test_no_snapshot_reference_shows_dashes_instead_of_zero_div_zero():
     ])
     result=group_statistics(items("1","2","3"),source,TODAY)
     assert result["Num SC"].tolist()==["1","2","3"]
+    assert result["PO asociados"].tolist()==["—","—","—"]
     for i in (0,2):
-        assert [result.iloc[i][col] for col in COLUMNS[2:]]==["—"]*4
+        assert [result.iloc[i][col] for col in COLUMNS[3:]]==["—"]*4
     assert result.iloc[1]["Pend PO"]=="1/1"
 
 
@@ -169,3 +170,41 @@ def test_pass_date_does_not_mark_operatively_completed_line_as_overdue():
     assert row["Pass Date"]=="1/2"
     assert row["Full Received"]=="0/2"
     assert row["Full Approved"]=="1/2"
+
+
+def test_associated_po_deduplicates_across_positions_and_sorts():
+    group=items("761451","761452","999999")
+    source=pd.DataFrame([
+        {**entry("761451","10","Completado",2,2,2,2),
+         "po_positions":"762087/14, 761956/2"},
+        {**entry("761451","20","Completado",3,3,3,3),
+         "po_positions":"762087/15, 762087/18"},
+        {**entry("761452","10","Pendiente pedido",0,0,1,0),
+         "po_positions":None},
+    ])
+    result=group_statistics(group,source,TODAY)
+    assert list(result.columns)==list(COLUMNS)
+    assert result["PO asociados"].tolist()==["761956, 762087","—","—"]
+    assert result["Pend PO"].tolist()==["0/2","1/1","—"]
+    assert result["Descripción contextual"].tolist()==[
+        "Descripción 761451","Descripción 761452","Descripción 999999"
+    ]
+
+
+def test_associated_po_ignores_cancelled_and_non_po_identifiers():
+    source=pd.DataFrame([
+        {**entry("1","10","SC anulada",0,0,0,0),
+         "po_positions":"000000/0, 0/0, 762087/1"},
+    ])
+    row=group_statistics(items("1"),source,TODAY).iloc[0]
+    assert row["PO asociados"]=="762087"
+    assert row["Full Approved"]=="0/1"
+
+
+def test_group_stats_po_is_second_column_without_extra_neon_query():
+    from pathlib import Path
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    assert '"PO asociados":st.column_config.TextColumn' in group
+    assert "linked.po_positions,linked.planned_date" in group
+    assert group.count("query(")==1
