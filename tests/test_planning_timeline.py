@@ -256,15 +256,14 @@ def test_date_source_conflicts_reported_without_invented_buy_segments():
     assert not bars(fig,"SC → Pedido aprobado")
 
 
-def test_plotly_same_compact_appearance_and_axis_180_without_year():
+def test_plotly_same_compact_appearance_and_horizontal_axis_without_year():
     rows=model(*(record(pos=str(10*i)) for i in range(1,9)))
     fig=timeline_figure(rows,TODAY)
     assert fig.layout.showlegend is False
     assert fig.layout.dragmode is False
     assert fig.layout.xaxis.fixedrange is True
     assert fig.layout.yaxis.fixedrange is True
-    # Plotly normalizes +180 to -180; these are the same orientation.
-    assert fig.layout.xaxis.tickangle==-180
+    assert fig.layout.xaxis.tickangle==0
     assert fig.layout.xaxis.tickformat=="%d/%m"
     assert fig.layout.xaxis.type=="date"
     assert len(fig.layout.yaxis.ticktext)==8
@@ -282,6 +281,8 @@ def test_plotly_same_compact_appearance_and_axis_180_without_year():
     assert 1.5<=gap<=3.5
     assert fig.layout.shapes[0].x0==TODAY.isoformat()
     assert fig.layout.shapes[0].line.color==TODAY_LINE
+    assert TODAY_LINE=="#475569"
+    assert fig.layout.annotations[0].font.color==TODAY_LINE
     assert fig.layout.hovermode=="closest"
 
 
@@ -372,7 +373,7 @@ def test_sc_761488_real_erp_dates_keep_all_13_red_days_uncovered(position):
     assert fig.layout.dragmode is False
     assert fig.layout.xaxis.fixedrange is True
     assert fig.layout.xaxis.tickformat=="%d/%m"
-    assert fig.layout.xaxis.tickangle==-180
+    assert fig.layout.xaxis.tickangle==0
 
 
 def test_grey_never_overlays_valid_purchasing_segments_across_date_patterns():
