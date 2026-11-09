@@ -44,7 +44,7 @@ receipt_keys AS (
 SELECT DISTINCT r.snapshot_id,r.receipt_no AS pr_no,r.po_no,r.po_pos,
   p.company,l.sc_no,l.sc_pos,l.allocation_status,
   s.description,s.project,p.vendor_name AS supplier_name,
-  p.vendor_name_count AS name_count
+  p.vendor_name_count::bigint AS name_count
 FROM receipt_keys r
 LEFT JOIN core.po_lines p ON p.snapshot_id=r.snapshot_id
  AND p.po_no=r.po_no AND p.po_pos=r.po_pos
