@@ -146,10 +146,8 @@ def test_group_statistics_sql_does_not_have_dangling_comma():
     overview=group.split('if st.button("Estadística"',1)[1].split(
         'st.session_state["group_statistics_result"]',1
     )[0]
-    assert re.search(
-        r"linked\\.planned_date\\s*FROM\\s+\\{source_table\\}",
-        overview,re.IGNORECASE
-    )
+    assert "linked.po_positions,linked.planned_date" in overview
+    assert "FROM {source_table} s" in overview
     assert not re.search(r",\\s*FROM\\s+",overview,re.IGNORECASE)
 
 
