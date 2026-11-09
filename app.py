@@ -274,7 +274,7 @@ def sc_export_button(view, filename, key):
     st.download_button(
         "Exportar CSV", data=sc_overview_csv(view),
         file_name=filename, mime="text/csv; charset=utf-8",
-        key=key, use_container_width=False,
+        key=key, use_container_width=False, on_click="ignore",
     )
 
 
