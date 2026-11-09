@@ -14,18 +14,18 @@ def snap(*rows):
     return pd.DataFrame(rows,columns=["id","snapshot_date","state"])
 
 
-def test_latest_validated_beats_older_active():
+def test_latest_validated_date_wins():
     records=snap(
-        (4,date(2026,11,1),"active"),
+        (4,date(2026,11,1),"validated"),
         (9,date(2026,11,8),"validated"),
         (8,date(2026,11,6),"validated"),
     )
     assert latest_snapshot_id(records)==9
 
 
-def test_latest_active_beats_older_validated():
+def test_latest_date_wins():
     records=snap(
-        (10,date(2026,11,9),"active"),
+        (10,date(2026,11,9),"validated"),
         (9,date(2026,11,8),"validated"),
     )
     assert latest_snapshot_id(records)==10
@@ -43,7 +43,7 @@ def test_latest_date_wins_even_if_imported_later_with_older_date():
 def test_same_day_tie_uses_largest_id_consistently():
     records=snap(
         (12,date(2026,11,8),"validated"),
-        (9,date(2026,11,8),"active"),
+        (9,date(2026,11,8),"validated"),
         (14,date(2026,11,8),"validated"),
     )
     assert latest_snapshot_id(records)==14
@@ -78,7 +78,7 @@ def test_invalid_missing_dates_and_ids_are_ignored_not_selected():
 
 @pytest.mark.parametrize("records", [
     snap((10,date(2026,11,9),"loading")),
-    snap((8,None,"active")),
+    snap((8,None,"validated")),
     pd.DataFrame(columns=["id","snapshot_date","state"]),
 ])
 def test_no_eligible_snapshot_fails_closed(records):
@@ -87,7 +87,7 @@ def test_no_eligible_snapshot_fails_closed(records):
 
 
 def test_eligible_states_are_explicit():
-    assert ELIGIBLE_STATES==frozenset(("active","validated"))
+    assert ELIGIBLE_STATES==frozenset(("validated",))
     with pytest.raises(ValueError,match="columnas"):
         latest_snapshot_id(pd.DataFrame([{"id":9}]))
 
@@ -95,12 +95,13 @@ def test_eligible_states_are_explicit():
 def test_app_uses_latest_date_order_and_id_with_manual_sidebar_control():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     assert "ORDER BY snapshot_date DESC NULLS LAST,id DESC" in app
-    assert "snapshot_ids.index(latest_snapshot_id(snapshots))" in app
+    assert "snapshot_ids.index(latest_id)" in app
     assert "sid=int(st.sidebar.selectbox(\"Snapshot\",snapshot_ids,index=default_idx," in app
     assert "snapshots[snapshots.state==\"active\"]" not in app
     assert "default_idx=int(active.index[0])" not in app
-    assert "WHERE state IN ('active','validated')" in app
+    assert "WHERE state='validated'" in app
     assert 'WHERE snapshot_id=%s' in app
+    assert '(" (Vigente)" if int(r[\'id\'])==latest_id else "")' in app
 
 
 def test_snapshot_selection_does_not_modify_db_or_change_erp():
@@ -122,7 +123,7 @@ def test_snapshot_metadata_refresh_is_isolated_from_erp_cache():
     )[0]
     assert "_read_management(" in metadata
     assert "snapshot_date DESC NULLS LAST,id DESC" in metadata
-    assert "state IN ('active','validated')" in metadata
+    assert "state='validated'" in metadata
     assert "query(" not in metadata
     assert "query.clear()" not in app
     assert "st_autorefresh" not in app
