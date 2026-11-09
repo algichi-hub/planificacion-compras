@@ -250,46 +250,17 @@ def run_import(args):
         print("Validated snapshot",sid,"date",args.date)
         print("Source counts:",counts)
         print("Quality issues:",len(issue_rows))
-        print("NOT ACTIVE. Inspect audit.import_issues and run the separate P2 coverage audit before --activate.")
+        print("Snapshot validated. Latest validated snapshot is shown by default; inspect audit.import_issues before trusting results.")
     return sid
-
-def activate(sid,allow_errors=False):
-    connstr=os.environ.get("DATABASE_URL")
-    if not connstr:
-        raise SystemExit("Set DATABASE_URL")
-    with psycopg.connect(connstr) as db:
-        with db.transaction():
-            with db.cursor() as cur:
-                cur.execute("SELECT state,importer_revision FROM audit.snapshots WHERE id=%s FOR UPDATE",(sid,))
-                row=cur.fetchone()
-                if not row or row[0] not in ("validated","active"):
-                    raise SystemExit("Snapshot must be validated")
-                try:
-                    ensure_current_importer(row[1])
-                except ValueError as exc:
-                    raise SystemExit(str(exc)) from exc
-                cur.execute("SELECT count(*) FROM audit.import_issues WHERE snapshot_id=%s AND severity='error'",(sid,))
-                errors=cur.fetchone()[0]
-                if errors and not allow_errors:
-                    raise SystemExit(f"{errors} import errors: inspect audit.import_issues. --allow-errors requires manual review")
-                cur.execute("UPDATE audit.snapshots SET state='validated' WHERE state='active' AND id<>%s",(sid,))
-                cur.execute("UPDATE audit.snapshots SET state='active',activated_at=now() WHERE id=%s",(sid,))
-    print("Activated",sid)
 
 if __name__=="__main__":
     ap=argparse.ArgumentParser()
     ap.add_argument("--date",help="Weekly snapshot date YYYY-MM-DD")
     ap.add_argument("--input",default="entrada")
     ap.add_argument("--from",dest="from_date",metavar="YYYY-MM-DD",help="Include SC approved on or after date; keep all related PO/receipts/incidents")
-    ap.add_argument("--activate",type=int,help="Explicitly activate an already validated snapshot")
-    ap.add_argument("--allow-errors",action="store_true",help="Override after manual review")
     ap.add_argument("--no-progress",action="store_true",help="Disable progress bars")
     args=ap.parse_args()
-    if args.activate is not None and args.from_date is not None:
-        ap.error("--from only applies to imports, not --activate")
-    if args.activate is not None:
-        activate(args.activate,args.allow_errors)
-    elif args.date:
+    if args.date:
         run_import(args)
     else:
-        ap.error("Provide --date or --activate")
+        ap.error("Provide --date")
