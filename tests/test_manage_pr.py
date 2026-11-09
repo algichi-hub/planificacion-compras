@@ -211,7 +211,7 @@ def test_nbi_migration_nullable_for_legacy_rows_and_check_constraint():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     assert '"received_by_nbi","created_by","created_at "' not in app or "received_by_nbi" in app
     assert '"received_by_nbi","created_by"' in app or "received_by_nbi,created_by" in app
-    assert '"received_by_nbi","headerName":"Recibido por NBI"' in app
+    assert '"received_by_nbi","headerName":"NBI"' in app
     assert "received_by_nbi=nbi" in app
 
 
