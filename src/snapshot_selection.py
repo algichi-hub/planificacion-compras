@@ -5,11 +5,11 @@ defines the default when the selector is initialized/reinitialized.
 """
 import pandas as pd
 
-ELIGIBLE_STATES = frozenset(("active", "validated"))
+ELIGIBLE_STATES = frozenset(("validated",))
 
 
 def latest_snapshot_id(snapshots: pd.DataFrame) -> int:
-    """Latest snapshot_date wins across both eligible states; ID breaks ties."""
+    """Latest validated snapshot_date wins; ID breaks ties."""
     required={"id","snapshot_date","state"}
     if snapshots is None or not required.issubset(snapshots.columns):
         raise ValueError("Faltan columnas de selección de snapshots.")
@@ -20,6 +20,6 @@ def latest_snapshot_id(snapshots: pd.DataFrame) -> int:
     valid["id"]=pd.to_numeric(valid["id"],errors="coerce")
     valid=valid.dropna(subset=["snapshot_date","id"])
     if valid.empty:
-        raise ValueError("No existe ningún snapshot validado o activo con fecha.")
+        raise ValueError("No existe ningún snapshot validado con fecha.")
     newest=valid.sort_values(["snapshot_date","id"],ascending=[False,False])
     return int(newest.iloc[0]["id"])
