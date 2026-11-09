@@ -76,7 +76,7 @@ def summarize_po(records):
         vals={r["ordered"] for r in rows}
         qty=next(iter(vals)) if len(vals)==1 else None
         sample=rows[0].copy()
-        names={r.get("vendor_name","").strip() for r in rows if r.get("vendor_name","").strip()}
+        names={str(r.get("vendor_name") or "").strip() for r in rows if str(r.get("vendor_name") or "").strip()}
         sample["vendor_name"]=next(iter(names)) if len(names)==1 else None
         sample["vendor_name_count"]=len(names)
         yield key,sample,qty,"verified" if len(vals)==1 and qty is not None else "ambiguous_ordered_qty"
