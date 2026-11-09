@@ -623,6 +623,7 @@ with tab4:
                         group_catalogue.clear()
                         group_items.clear()
                         st.session_state.pop("bulk_result",None)
+                        st.session_state.pop("group_statistics_result",None)
                         st.rerun()
                     except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                         st.error(f"No se pudo guardar el grupo: {type(exc).__name__}")
@@ -643,6 +644,7 @@ with tab4:
             def _refresh_manage():
                 group_items.clear()
                 st.session_state.pop("bulk_result",None)
+                st.session_state.pop("group_statistics_result",None)
                 st.session_state[revision_key]+=1
 
             @st.dialog("Confirmar borrado")
@@ -821,6 +823,7 @@ with tab4:
                             group_catalogue.clear()
                             group_items.clear()
                             st.session_state.pop("bulk_result",None)
+                            st.session_state.pop("group_statistics_result",None)
                             st.rerun()
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                             st.error(f"No se pudo modificar el grupo: {type(exc).__name__}")
@@ -836,6 +839,7 @@ with tab4:
                             group_catalogue.clear()
                             group_items.clear()
                             st.session_state.pop("bulk_result",None)
+                            st.session_state.pop("group_statistics_result",None)
                             st.rerun()
                         except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
                             st.error(f"No se pudo eliminar el grupo: {type(exc).__name__}")
