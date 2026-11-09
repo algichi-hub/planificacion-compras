@@ -62,8 +62,8 @@ def group_items(group_id):
 def hand_deliveries():
     """Only active manual deliveries; this cache never flushes ERP queries."""
     return _read_management(
-        "SELECT id,pr_no,quantity,delivery_date,received_by_nbi,created_by,created_at "
-        "FROM planning.pr_hand_deliveries WHERE voided_at IS NULL "
+        "SELECT id,pr_no,quantity,delivery_date,received_by_nbi,created_by,created_at, "
+        "erp_traceability_comment FROM planning.pr_hand_deliveries WHERE voided_at IS NULL "
         "ORDER BY delivery_date DESC,id DESC"
     )
 
@@ -1080,7 +1080,8 @@ with tab5:
                 # for equal dates, even if the cached DataFrame order changes.
                 visible=ledger.sort_values(
                     ["delivery_date","id"],ascending=[False,False],kind="stable"
-                )[["id","pr_no","quantity","delivery_date","received_by_nbi"]].copy()
+                )[["id","pr_no","quantity","delivery_date","received_by_nbi",
+                   "erp_traceability_comment"]].copy()
                 # Read the latest validated ERP snapshot regardless of the user's
                 # historical selection in the rest of the dashboard.
                 current_erp_snapshot=latest_snapshot_id(available_snapshots())
@@ -1095,6 +1096,15 @@ with tab5:
                               for pr in pr_numbers}
                 for column in ("Description","Proyecto","Pedido/pos","Proveedor","Observaciones"):
                     visible[column]=visible["pr_no"].astype(str).map(lambda pr:resolved[pr][column])
+                # Retain the audited backfill annotation even when a newer snapshot
+                # supplies the currently displayed purchase descriptions.
+                def comments_for_row(row):
+                    history=row["erp_traceability_comment"]
+                    history="" if pd.isna(history) else str(history).strip()
+                    current=str(row["Observaciones"] or "").strip()
+                    return " · ".join(part for part in (current,history) if part)
+                visible["Observaciones"]=visible.apply(comments_for_row,axis=1)
+                visible=visible.drop(columns=["erp_traceability_comment"])
                 visible["received_by_nbi"]=visible["received_by_nbi"].fillna("—").astype(str)
                 visible["quantity"]=visible["quantity"].map(format_quantity)
                 visible["delivery_date"]=visible["delivery_date"].map(lambda x:x.strftime("%d/%m/%Y"))
