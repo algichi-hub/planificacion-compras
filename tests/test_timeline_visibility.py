@@ -129,7 +129,7 @@ def test_sc_lightweight_sql_has_no_dangling_select_comma():
         assert "linked.po_positions,linked.planned_date" in statement
         assert not re.search(r",\s*FROM\s+",statement,re.IGNORECASE)
         assert re.search(
-            r"linked\.planned_date\s*FROM\s+planning\.",
+            r"linked\.planned_date,linked\.pr_numbers\s*FROM\s+planning\.",
             statement,re.IGNORECASE
         )
         assert "receipt_closure" not in statement
