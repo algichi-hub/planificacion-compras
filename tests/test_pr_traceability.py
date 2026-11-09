@@ -82,12 +82,17 @@ def test_description_conflict_in_multiple_source_records_is_not_silenced():
 
 def test_sql_only_reads_erp_tables_with_selected_snapshot_and_no_writes():
     assert PR_RELATIONS_SQL.count("%s")==2
-    for table in ("core.receipts","core.po_lines","core.sc_po_links",
-                  "core.sc_lines","raw.source_rows"):
-        assert table in PR_RELATIONS_SQL
+    assert "planning.v_pr_delivery_relations" in PR_RELATIONS_SQL
+    assert "WHERE snapshot_id=%s" in PR_RELATIONS_SQL
+    assert "pr_no=ANY(%s)" in PR_RELATIONS_SQL
+    assert "raw.source_rows" not in PR_RELATIONS_SQL
     for verb in ("INSERT INTO","UPDATE ","DELETE FROM","DROP TABLE"):
         assert verb not in PR_RELATIONS_SQL.upper()
-    assert "source_name='SC_FAS.csv'" in PR_RELATIONS_SQL
+    migration=(Path(__file__).resolve().parents[1]/"migrations"/"014_pr_lineage_backfill.sql").read_text(encoding="utf-8")
+    assert "GRANT SELECT ON planning.v_pr_delivery_relations TO compras_reader" in migration
+    assert "GRANT SELECT ON raw.source_rows" not in migration
+    assert "Se rellenan campos faltantes desde snapshot #11" in migration
+    assert "m.voided_at IS NULL" in migration
 
 
 def test_app_uses_latest_validated_snapshot_and_keeps_manual_sort_and_void():
@@ -106,3 +111,10 @@ def test_app_uses_latest_validated_snapshot_and_keeps_manual_sort_and_void():
         assert name in grid
     assert grid.index('"Description"')<grid.index('"Proyecto"')<grid.index('"Pedido/pos"')
     assert grid.index('"Pedido/pos"')<grid.index('"Proveedor"')<grid.index('"delivery_date"')
+
+
+def test_backfill_audit_comment_is_shown_with_dynamic_current_description():
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    assert "erp_traceability_comment FROM planning.pr_hand_deliveries" in app
+    assert 'visible["Observaciones"]=visible.apply(comments_for_row,axis=1)' in app
+    assert 'visible=visible.drop(columns=["erp_traceability_comment"])' in app
