@@ -10,7 +10,8 @@ import pytest
 from src.planning_timeline import (
     as_day, build_timeline, receipt_milestones, timeline_figure,
     SC_ORDER, ORDER_ORIGINAL, REPLAN, RECEIPT_WAIT,
-    PARTIAL_PR, COMPLETE_PR, TODAY_LINE, ROW_PITCH, BAR_WIDTH,
+    PARTIAL_PR, COMPLETE_PR, PARTIAL_HANDOVER, COMPLETE_HANDOVER,
+    physical_milestones, TODAY_LINE, ROW_PITCH, BAR_WIDTH,
 )
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -400,3 +401,200 @@ def test_grey_never_overlays_valid_purchasing_segments_across_date_patterns():
             finish=(date.fromisoformat(trace.base[0])
                     + timedelta(milliseconds=int(trace.x[0])))
             assert grey_start >= finish
+
+
+def physical_fixture(receipts=None, deliveries=None, state="Entregado total",
+                     approved=20):
+    """Two ERP PRs; authoritative approved quantities come from ownership links."""
+    receipts = receipts if receipts is not None else [
+        event(pr="10001",qty=20,day="2026-09-20",received=6,source_line=1),
+        event(pr="10002",qty=20,day="2026-09-25",received=14,source_line=2),
+    ]
+    link_rows = [
+        dict(company="210",sc_no="761453",sc_pos="10",
+             receipt_no="10001",owner_count=1,pr_count=1,
+             approved_qty=Decimal("6")),
+        dict(company="210",sc_no="761453",sc_pos="10",
+             receipt_no="10002",owner_count=1,pr_count=1,
+             approved_qty=Decimal("14")),
+    ]
+    deliveries = deliveries if deliveries is not None else [
+        dict(pr_no="10001",quantity=Decimal("2"),delivery_date=date(2026,10,1),
+             received_by_nbi="8579",voided_at=None),
+        dict(pr_no="10001",quantity=Decimal("4"),delivery_date=date(2026,10,5),
+             received_by_nbi="8579",voided_at=None),
+        dict(pr_no="10002",quantity=Decimal("14"),delivery_date=date(2026,10,6),
+             received_by_nbi="8579",voided_at=None),
+    ]
+    sc=record(
+        approval="01/09/26",order="15/09/26",original="17/09/26",
+        plan=date(2026,9,18),events=receipts,display_state=state,
+        approved_qty=Decimal(str(approved)),
+    )
+    return sc,pd.DataFrame(deliveries),pd.DataFrame(link_rows)
+
+
+def test_physical_partial_and_full_markers_with_extended_grey():
+    sc,ledger,links=physical_fixture()
+    row=build_timeline(pd.DataFrame([sc]),TODAY,ledger=ledger,receipt_links=links)[0]
+    assert row["completion"]==date(2026,9,25)
+    assert row["handover_completion"]==date(2026,10,6)
+    assert [v["date"] for v in row["physical_milestones"]]==[
+        date(2026,10,1),date(2026,10,5),date(2026,10,6)
+    ]
+    fig=timeline_figure([row],TODAY)
+    for name,color,expected in [
+        ("Recepción parcial",PARTIAL_PR,"2026-09-20"),
+        ("Recepción completa",COMPLETE_PR,"2026-09-25"),
+        ("Entrega física parcial",PARTIAL_HANDOVER,"2026-10-01"),
+        ("Entrega física total",COMPLETE_HANDOVER,"2026-10-06"),
+    ]:
+        traces=[x for x in fig.data if x.type=="scatter" and x.name==name]
+        assert len(traces)==1
+        assert traces[0].line.color==color
+        assert traces[0].line.width==4
+        assert traces[0].x[0]==expected
+    assert PARTIAL_PR=="#93C5FD" and COMPLETE_PR=="#1D4ED8"
+    assert PARTIAL_HANDOVER=="#C4B5FD" and COMPLETE_HANDOVER=="#6D28D9"
+    gray=bars(fig,"Pendiente de recepción")[0]
+    assert gray.base[0]=="2026-09-18"
+    assert gray.x[0]==18*86400000
+    assert "NBI 8579" in next(
+        x for x in fig.data if x.name=="Entrega física parcial"
+    ).customdata[0]
+
+
+def test_missing_or_partial_handover_leaves_grey_until_today():
+    sc,ledger,links=physical_fixture(state="Entregado parcial")
+    rows=build_timeline(pd.DataFrame([sc]),TODAY,ledger=ledger.iloc[:2],receipt_links=links)
+    assert rows[0]["handover_completion"] is None
+    fig=timeline_figure(rows,TODAY)
+    assert not any(x.name=="Entrega física total" for x in fig.data)
+    assert next(x for x in fig.data if x.name=="Pendiente de recepción").x[0]==51*86400000
+    # Hide and show reuses the same data, but no ledger means no purple markers.
+    plain=timeline_figure(build_timeline(pd.DataFrame([sc]),TODAY),TODAY)
+    assert not any("Entrega física" in (x.name or "") for x in plain.data)
+
+
+def test_same_day_full_erp_and_full_handover_only_purple_dark_visible():
+    sc,ledger,links=physical_fixture(
+        receipts=[event(pr="10001",qty=6,day="2026-10-06",received=6)],
+        deliveries=[dict(pr_no="10001",quantity=Decimal("6"),
+                         delivery_date=date(2026,10,6),received_by_nbi="8579")],
+        approved=6,
+    )
+    links=links.iloc[:1].copy()
+    sc["display_state"]="Entregado total"
+    row=build_timeline(pd.DataFrame([sc]),TODAY,ledger=ledger,receipt_links=links)[0]
+    assert row["handover_completion"]==date(2026,10,6)
+    fig=timeline_figure([row],TODAY)
+    assert not any(x.name=="Recepción completa" for x in fig.data)
+    full=[x for x in fig.data if x.name=="Entrega física total"]
+    assert len(full)==1
+    assert list(full[0].x)==["2026-10-06","2026-10-06",None]
+    assert "Recepción completa" in full[0].customdata[0]
+    assert "Entrega física total" in full[0].customdata[0]
+    assert "PR 10001" in full[0].customdata[0]
+
+
+def test_same_day_full_erp_and_partial_handover_purple_light_wins():
+    sc,ledger,links=physical_fixture(
+        receipts=[event(pr="10001",qty=6,day="2026-10-06",received=6)],
+        deliveries=[dict(pr_no="10001",quantity=Decimal("2"),
+                         delivery_date=date(2026,10,6))],
+        state="Entregado parcial",approved=6,
+    )
+    links=links.iloc[:1].copy()
+    fig=timeline_figure(build_timeline(
+        pd.DataFrame([sc]),TODAY,ledger=ledger,receipt_links=links
+    ),TODAY)
+    assert not any(x.name=="Recepción completa" for x in fig.data)
+    shown=[x for x in fig.data if x.name=="Entrega física parcial"]
+    assert len(shown)==1
+    assert "Recepción completa" in shown[0].customdata[0]
+
+
+def test_same_day_multiple_manual_events_collapsed_with_full_tooltip():
+    sc,ledger,links=physical_fixture(
+        deliveries=[
+            dict(pr_no="10001",quantity=Decimal("6"),delivery_date=date(2026,10,6)),
+            dict(pr_no="10002",quantity=Decimal("10"),delivery_date=date(2026,10,6)),
+            dict(pr_no="10002",quantity=Decimal("4"),delivery_date=date(2026,10,6)),
+        ]
+    )
+    fig=timeline_figure(build_timeline(
+        pd.DataFrame([sc]),TODAY,ledger=ledger,receipt_links=links
+    ),TODAY)
+    full=next(x for x in fig.data if x.name=="Entrega física total")
+    assert len(full.x)==3
+    assert full.customdata[0].count("PR 10002")==2
+
+
+def test_unverified_or_reused_pr_never_gets_physical_closed():
+    sc,ledger,links=physical_fixture()
+    for bad in ("owner_count","pr_count"):
+        wrong=links.copy()
+        wrong.loc[0,bad]=2
+        physical,closed,issues=physical_milestones(sc,ledger,wrong,TODAY,date(2026,9,25))
+        assert closed is None
+        assert issues
+        assert not any(x["complete"] for x in physical)
+
+
+def test_unapproved_or_future_or_pre_receipt_delivery_cannot_close():
+    sc,ledger,links=physical_fixture()
+    for day in (date(2026,9,1),date(2026,11,9)):
+        wrong=ledger.copy()
+        wrong.loc[0,"delivery_date"]=day
+        physical,closed,issues=physical_milestones(sc,wrong,links,TODAY,date(2026,9,25))
+        assert closed is None
+        assert issues
+    wrong=ledger.copy()
+    wrong.loc[2,"quantity"]=Decimal("15")
+    physical,closed,issues=physical_milestones(sc,wrong,links,TODAY,date(2026,9,25))
+    assert closed is None
+    assert any("excede" in x for x in issues)
+    assert all(
+        not any(e["qty"]==Decimal("15") for e in m["entries"])
+        for m in physical
+    )
+
+
+def test_voided_delivery_not_counted_and_no_duplicate_across_sc():
+    sc,ledger,links=physical_fixture()
+    bad=pd.concat([ledger,pd.DataFrame([dict(
+        pr_no="10001",quantity=Decimal("100"),delivery_date=date(2026,10,2),
+        voided_at=pd.Timestamp("2026-11-01")
+    ),dict(
+        pr_no="OTHER",quantity=Decimal("100"),delivery_date=date(2026,10,2),
+        voided_at=None
+    )])],ignore_index=True)
+    marks,closed,issues=physical_milestones(sc,bad,links,TODAY,date(2026,9,25))
+    assert closed==date(2026,10,6)
+    assert sum(len(m["entries"]) for m in marks)==3
+
+
+def test_full_must_match_status_and_all_approved_prs_and_erp_closure():
+    sc,ledger,links=physical_fixture()
+    for change in ({"display_state":"Entregado parcial"},
+                   {"approved_qty":Decimal("19")}):
+        copied=dict(sc,**change)
+        _,closed,_=physical_milestones(copied,ledger,links,TODAY,date(2026,9,25))
+        assert closed is None
+    _,closed,_=physical_milestones(sc,ledger,links,TODAY,None)
+    assert closed is None
+
+
+def test_timeline_is_exclusive_to_sc_and_uses_existing_manage_pr_ledger():
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
+    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    assert 'sc_timeline_source.attrs["physical_ledger"]=hand_deliveries()' in sc
+    assert 'sc_timeline_source.attrs["receipt_links"]=_receipt_links_for_sc(' in sc
+    assert '"receipt_links"))' in app
+    assert "render_planning_timeline(" in sc
+    assert "render_planning_timeline(" not in group
+    assert "po_link_summary" not in group
+    assert 'hand_deliveries.clear()' in app
+    assert "WHERE voided_at IS NULL" in app
+    assert app.count('_receipt_links_for_sc(snapshot_id,numbers)')==1
