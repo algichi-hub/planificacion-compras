@@ -82,7 +82,7 @@ def test_sc_workflow_rules_and_snapshot_scope():
     assert PARAMETERS==6
     assert QUERY.count("%s")==PARAMETERS
     assert "WHEN requested_qty=0 THEN 'SC anulada'" in QUERY
-    assert QUERY.index("WHEN requested_qty=0 THEN 'SC anulada'") < QUERY.index("WHEN linked_po=0 OR NOT any_po_approved THEN 'Pendiente pedido'")
+    assert QUERY.index("WHEN requested_qty=0 THEN 'SC anulada'") < QUERY.index("WHEN linked_po=0 OR (NOT any_po_approved AND NOT (received_qty>0 OR approved_qty>0)) THEN 'Pendiente pedido'")
     assert "AND ordered_qty>0 THEN 'SC anulada con PO positivo'" in QUERY
     assert "FROM core.sc_lines s WHERE s.snapshot_id=%s" in QUERY
     assert "FROM core.receipts WHERE snapshot_id=%s" in QUERY
