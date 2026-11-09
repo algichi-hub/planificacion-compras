@@ -987,6 +987,8 @@ with tab5:
                 except ValueError as exc:
                     st.error(str(exc))
             with st.expander("Importación múltiple de PR", expanded=False):
+                if st.session_state.pop("pr_batch_clear_input",False):
+                    st.session_state["pr_batch_input"]=""
                 st.caption("Pega grupos PR;Qty;DD/MM/AAAA;NBI consecutivos, separados por punto y coma (máximo 200).")
                 bulk_text=st.text_area(
                     "Lista de entregas",
@@ -1056,7 +1058,7 @@ with tab5:
                                      f"No se pudo importar el lote: {type(exc).__name__}")
                         else:
                             st.session_state.pop("pr_batch_preview",None)
-                            st.session_state["pr_batch_input"]=""
+                            st.session_state["pr_batch_clear_input"]=True
                             if result["inserted"]:
                                 hand_deliveries.clear()
                                 st.session_state["pr_notice"]=(
