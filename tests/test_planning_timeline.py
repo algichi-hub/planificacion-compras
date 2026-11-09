@@ -562,13 +562,13 @@ def test_unapproved_or_future_or_pre_receipt_delivery_cannot_close():
 
 def test_voided_delivery_not_counted_and_no_duplicate_across_sc():
     sc,ledger,links=physical_fixture()
-    bad=pd.concat([ledger,pd.DataFrame([dict(
-        pr_no="10001",quantity=Decimal("100"),delivery_date=date(2026,10,2),
-        voided_at=pd.Timestamp("2026-11-01")
-    ),dict(
-        pr_no="OTHER",quantity=Decimal("100"),delivery_date=date(2026,10,2),
-        voided_at=None
-    )])],ignore_index=True)
+    bad=pd.DataFrame(ledger.to_dict("records")+[
+        dict(pr_no="10001",quantity=Decimal("100"),
+             delivery_date=date(2026,10,2),
+             voided_at=date(2026,11,1)),
+        dict(pr_no="OTHER",quantity=Decimal("100"),
+             delivery_date=date(2026,10,2),voided_at=None),
+    ])
     marks,closed,issues=physical_milestones(sc,bad,links,TODAY,date(2026,9,25))
     assert closed==date(2026,10,6)
     assert sum(len(m["entries"]) for m in marks)==3
@@ -598,3 +598,16 @@ def test_timeline_is_exclusive_to_sc_and_uses_existing_manage_pr_ledger():
     assert 'hand_deliveries.clear()' in app
     assert "WHERE voided_at IS NULL" in app
     assert app.count('_receipt_links_for_sc(snapshot_id,numbers)')==1
+
+
+def test_duplicate_pr_links_cannot_generate_physical_marker_or_close():
+    sc,ledger,links=physical_fixture()
+    duplicate=pd.concat([links,links.iloc[[0]]],ignore_index=True)
+    markers,closed,issues=physical_milestones(
+        sc,ledger,duplicate,TODAY,date(2026,9,25)
+    )
+    assert closed is None
+    assert any("sin atribución" in issue for issue in issues)
+    assert all(
+        item["pr"] != "10001" for marker in markers for item in marker["entries"]
+    )
