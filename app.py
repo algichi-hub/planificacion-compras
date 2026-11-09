@@ -17,6 +17,7 @@ from src.sc_overview import overview_display, overview_row_style
 from src.delivery_status import attach_delivery_status, present_state
 from src.group_sc_view import group_overview, group_overview_source
 from src.group_statistics import group_statistics
+from src.snapshot_selection import latest_snapshot_id
 from src.quantity_format import format_sc_quantities
 from src.bulk_sc import is_bulk_admin, write_bulk
 from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize_quantity,
@@ -97,7 +98,9 @@ if not connection_string():
     st.stop()
 
 try:
-    snapshots=query("SELECT id,snapshot_date,state FROM audit.snapshots WHERE state IN ('active','validated') ORDER BY snapshot_date DESC")
+    snapshots=query("SELECT id,snapshot_date,state FROM audit.snapshots "
+                    "WHERE state IN ('active','validated') "
+                    "ORDER BY snapshot_date DESC NULLS LAST,id DESC")
 except Exception as exc:
     st.error(f"No se ha podido consultar Neon: {type(exc).__name__}")
     st.stop()
@@ -107,9 +110,11 @@ if snapshots.empty:
     st.stop()
 
 snapshots["label"]=snapshots.apply(lambda r:f"{r['snapshot_date']} · {r['state']} · #{r['id']}",axis=1)
-active=snapshots[snapshots.state=="active"]
-default_idx=int(active.index[0]) if not active.empty else 0
-sid=int(st.sidebar.selectbox("Snapshot",snapshots["id"].tolist(),index=default_idx,
+# Default to the newest eligible date, regardless of whether state is
+# active or validated. The user's explicit sidebar choice still takes priority.
+snapshot_ids=snapshots["id"].astype(int).tolist()
+default_idx=snapshot_ids.index(latest_snapshot_id(snapshots))
+sid=int(st.sidebar.selectbox("Snapshot",snapshot_ids,index=default_idx,
                              format_func=lambda x:snapshots.loc[snapshots.id==x,"label"].iloc[0]))
 st.sidebar.caption("Los filtros consultan únicamente el snapshot elegido.")
 projects=query("SELECT DISTINCT project FROM core.sc_lines WHERE snapshot_id=%s AND project IS NOT NULL ORDER BY project",(sid,))
