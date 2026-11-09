@@ -118,3 +118,47 @@ def test_migration_provides_idempotent_batch_identity():
     assert "ADD COLUMN IF NOT EXISTS batch_id" in sql
     assert "GRANT SELECT, INSERT" in sql
     assert "DROP TABLE" not in sql
+
+
+def test_digest_is_order_independent_but_preserves_multiplicity():
+    rows = parse_pr_batch(EXAMPLE, today=TODAY)
+    assert batch_digest(rows) == batch_digest(tuple(reversed(rows)))
+    assert batch_digest(rows) != batch_digest(rows + (rows[0],))
+
+
+def _mock_connection(monkeypatch, *, inserted):
+    from src import pr_batch_import as mod
+    cursor = MagicMock()
+    cursor.fetchone.side_effect = [(41,)] if inserted else [None, (41, 2)]
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.transaction.return_value.__enter__.return_value = None
+    conn.cursor.return_value.__enter__.return_value = cursor
+    monkeypatch.setattr(mod.psycopg, "connect", lambda *a, **kw: conn)
+    return conn, cursor
+
+
+def test_writer_is_atomic_and_inserts_exactly_the_previewed_rows(monkeypatch):
+    records = parse_pr_batch("000111;2;06/11/2026;0007;000112;3;06/11/2026;0007", today=TODAY)
+    conn, cursor = _mock_connection(monkeypatch, inserted=True)
+    user = {"is_logged_in": True, "email_verified": True, "email": "allowed@example.com"}
+    result = insert_pr_batch("fake", user, "allowed@example.com", records,
+                             expected_digest=batch_digest(records), today=TODAY)
+    assert result == {"inserted": True, "count": 2, "batch_id": 41}
+    conn.transaction.assert_called_once()
+    cursor.executemany.assert_called_once()
+    args = cursor.executemany.call_args.args[1]
+    assert len(args) == 2
+    assert args[0][0] == "000111" and args[0][3] == "0007"
+    assert args[1][-1] == 41
+
+
+def test_retry_does_not_write_any_delivery(monkeypatch):
+    records = parse_pr_batch("000111;2;06/11/2026;0007;000112;3;06/11/2026;0007", today=TODAY)
+    conn, cursor = _mock_connection(monkeypatch, inserted=False)
+    user = {"is_logged_in": True, "email_verified": True, "email": "allowed@example.com"}
+    result = insert_pr_batch("fake", user, "allowed@example.com", records,
+                             expected_digest=batch_digest(records), today=TODAY)
+    assert result == {"inserted": False, "count": 2, "batch_id": 41}
+    cursor.executemany.assert_not_called()
+    conn.transaction.assert_called_once()
