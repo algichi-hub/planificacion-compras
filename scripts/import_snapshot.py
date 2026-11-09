@@ -1,4 +1,4 @@
-"""Manual weekly CSV import. No destructive replacement of active snapshots."""
+"""Manual weekly CSV import with atomic operational SC classification."""
 import argparse
 import hashlib
 import os
@@ -14,6 +14,7 @@ from tqdm import tqdm
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from src.normalize import iter_source,decimal_es,date_es,is_real_po,indexed
 from src.reconcile import parse_sc,parse_receipt,parse_incident,summarize_sc,summarize_po
+from scripts.build_sc_workflow import classify
 
 SOURCES={"SC_FAS.csv":"|","INC_FAS.csv":";","Recepciones_Sevilla.csv":";"}
 IMPORTER_REVISION="p2_receipt_decimal_dot_v1"
@@ -95,12 +96,28 @@ def in_approval_scope(source, record, selected_sc_keys, selected_po_keys):
         return (indexed(record,2),indexed(record,3)) in selected_po_keys
     raise ValueError(f"Unknown import source: {source}")
 
+def finalize_import(db, cur, snapshot_id):
+    """Publish a validated snapshot only with a complete derived SC classification.
+
+    Called inside run_import's transaction: failures roll back source and derived rows.
+    """
+    cur.execute("SELECT count(*) FROM core.sc_lines WHERE snapshot_id=%s", (snapshot_id,))
+    expected=cur.fetchone()[0]
+    if expected <= 0:
+        raise ValueError("Cannot validate a snapshot without SC positions")
+    cur.execute("UPDATE audit.snapshots SET state='validated' WHERE id=%s", (snapshot_id,))
+    counts=classify(db, snapshot_id, commit=True)
+    if sum(counts.values()) != expected:
+        raise ValueError("SC classification cardinality mismatch")
+    return expected
+
+
 def run_import(args):
     root=Path(args.input)
     for name in SOURCES:
         if not (root/name).is_file():
             raise SystemExit(f"Required input missing: {root/name}")
-    print("[1/4] Calculating file hashes...",flush=True)
+    print("[1/5] Calculating file hashes...",flush=True)
     hashes={name:sha256(root/name) for name in SOURCES}
     cutoff=parse_cutoff(getattr(args,"from_date",None))
     selected_sc_keys,conflicts=(approved_sc_selection(root/"SC_FAS.csv",cutoff)
@@ -126,7 +143,7 @@ def run_import(args):
                 sid=cur.fetchone()[0]
                 issue_rows=[(sid,*row[1:]) for row in issue_rows]
                 selected_po_keys=set()
-                print("[2/4] Uploading CSV data...",flush=True)
+                print("[2/5] Uploading CSV data...",flush=True)
                 for source,separator in SOURCES.items():
                     total=valid=bad=filtered=0
                     pbar=tqdm(total=count_data_lines(root/source),desc=source[:22],unit="line",
@@ -192,7 +209,7 @@ def run_import(args):
                     tqdm.write(f"  {source}: {valid:,} selected; {filtered:,} excluded; {bad:,} malformed")
                     counts[source]={"total":total,"ok":valid,"filtered":filtered,"invalid":bad}
                     cur.execute("INSERT INTO audit.source_files(snapshot_id,source_name,sha256,rows_total,rows_ok,rows_invalid) VALUES (%s,%s,%s,%s,%s,%s)",(sid,source,hashes[source],total,valid,bad))
-                print("[3/4] Conciliating SC / PO and building database tables...",flush=True)
+                print("[3/5] Conciliating SC / PO and building database tables...",flush=True)
                 with tqdm(total=8,desc="SC/PO reconciliation (approx.)",unit="step",
                           disable=getattr(args,"no_progress",False),dynamic_ncols=True,leave=True) as progress:
                     progress.set_postfix_str("Grouping SC",refresh=True)
@@ -245,12 +262,14 @@ def run_import(args):
                     copy_rows(cur,"audit.import_issues",["snapshot_id","source_name","line_number","severity","issue_code","details"],issue_rows)
                     progress.update(1)
                     progress.set_postfix_str("Reconciliation complete",refresh=True)
-                print("[4/4] Finalizing transaction...",flush=True)
-                cur.execute("UPDATE audit.snapshots SET state='validated' WHERE id=%s",(sid,))
+                print("[4/5] Calculating SC workflow classification...",flush=True)
+                classified_count=finalize_import(db,cur,sid)
+                print(f"Classified {classified_count:,} SC positions.",flush=True)
+                print("[5/5] Finalizing transaction...",flush=True)
         print("Validated snapshot",sid,"date",args.date)
         print("Source counts:",counts)
         print("Quality issues:",len(issue_rows))
-        print("Snapshot validated. Latest validated snapshot is shown by default; inspect audit.import_issues before trusting results.")
+        print("Snapshot validated with SC workflow computed. Latest validated snapshot is shown by default; inspect audit.import_issues before trusting results.")
     return sid
 
 if __name__=="__main__":
