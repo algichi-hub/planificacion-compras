@@ -191,6 +191,7 @@ def physical_milestones(record, ledger, receipt_links, today, erp_complete):
         if isinstance(item, dict) and item.get("pr_no") is not None:
             raw_by_pr[str(item["pr_no"])].append(item)
     approved_by_pr = {}
+    ambiguous_pr = set()
     for link in local:
         pr = str(link["receipt_no"])
         approved = _positive_number(link.get("approved_qty"))
@@ -202,8 +203,11 @@ def physical_milestones(record, ledger, receipt_links, today, erp_complete):
         received_day = as_day(raw[0].get("pr_date")) if len(raw) == 1 else None
         if pr in approved_by_pr or not unique or approved is None or received_day is None:
             issues.append(f"PR {pr} sin atribución o aprobación verificable")
+            ambiguous_pr.add(pr)
             continue
         approved_by_pr[pr] = (approved, received_day)
+    for pr in ambiguous_pr:
+        approved_by_pr.pop(pr, None)
     if not approved_by_pr:
         return [], None, list(dict.fromkeys(issues))
     if len(approved_by_pr) != len(local):
