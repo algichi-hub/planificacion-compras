@@ -110,3 +110,20 @@ def test_snapshot_selection_does_not_modify_db_or_change_erp():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in app
     assert 'stat_table=group_statistics(items,stats_saved[1],today_madrid)' in app
+
+
+
+def test_snapshot_metadata_refresh_is_isolated_from_erp_cache():
+    """The default can discover a newly validated snapshot without a 10m lag."""
+    app=(ROOT/"app.py").read_text(encoding="utf-8")
+    assert '@st.cache_data(ttl=60,show_spinner=False)\ndef available_snapshots():' in app
+    metadata=app.split("def available_snapshots():",1)[1].split(
+        "if not connection_string():",1
+    )[0]
+    assert "_read_management(" in metadata
+    assert "snapshot_date DESC NULLS LAST,id DESC" in metadata
+    assert "state IN ('active','validated')" in metadata
+    assert "query(" not in metadata
+    assert "query.clear()" not in app
+    assert "st_autorefresh" not in app
+    assert "snapshots=available_snapshots()" in app
