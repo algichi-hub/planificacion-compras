@@ -17,8 +17,10 @@ SC_ORDER = "#DC2626"
 ORDER_ORIGINAL = "#F59E0B"
 REPLAN = "#F9A8D4"  # Pink pastel: planned-date extension
 RECEIPT_WAIT = "#CBD5E1"
-PARTIAL_PR = "#2563EB"  # Primary blue
-COMPLETE_PR = "#16A34A"
+PARTIAL_PR = "#93C5FD"  # Light blue: partial ERP receipt
+COMPLETE_PR = "#1D4ED8"  # Dark blue: full ERP receipt
+PARTIAL_HANDOVER = "#C4B5FD"  # Light purple: partial physical handover
+COMPLETE_HANDOVER = "#6D28D9"  # Dark purple: verified full physical handover
 TODAY_LINE = "#475569"
 MISSING = "#64748B"
 
@@ -167,7 +169,97 @@ def receipt_milestones(raw_events, today):
     return milestones, complete_at, list(dict.fromkeys(issues))
 
 
-def build_timeline(source, today):
+def physical_milestones(record, ledger, receipt_links, today, erp_complete):
+    """Dated physical events for unambiguous, approved ERP PRs of this SC.
+
+    A full marker requires the already-validated Manage PR display state,
+    unique PR ownership, per-PR approved quantities, and ERP full receipt.
+    Never infer handovers from a snapshot or treat a PR from another SC as ours.
+    """
+    if ledger is None or receipt_links is None or ledger.empty or receipt_links.empty:
+        return [], None, []
+    key = tuple(str(record.get(field)) for field in ("company", "sc_no", "sc_pos"))
+    local = [
+        link for link in receipt_links.to_dict("records")
+        if tuple(str(link.get(field)) for field in ("company", "sc_no", "sc_pos")) == key
+    ]
+    if not local:
+        return [], None, []
+    issues = []
+    raw_by_pr = defaultdict(list)
+    for item in _raw_events(record.get("receipt_events")):
+        if isinstance(item, dict) and item.get("pr_no") is not None:
+            raw_by_pr[str(item["pr_no"])].append(item)
+    approved_by_pr = {}
+    for link in local:
+        pr = str(link["receipt_no"])
+        approved = _positive_number(link.get("approved_qty"))
+        raw = raw_by_pr.get(pr, [])
+        try:
+            unique = int(link["owner_count"]) == 1 and int(link["pr_count"]) == 1
+        except (ValueError, TypeError):
+            unique = False
+        received_day = as_day(raw[0].get("pr_date")) if len(raw) == 1 else None
+        if pr in approved_by_pr or not unique or approved is None or received_day is None:
+            issues.append(f"PR {pr} sin atribución o aprobación verificable")
+            continue
+        approved_by_pr[pr] = (approved, received_day)
+    if not approved_by_pr:
+        return [], None, list(dict.fromkeys(issues))
+    if len(approved_by_pr) != len(local):
+        issues.append("No todos los PR están conciliados inequívocamente")
+
+    events = defaultdict(list)
+    delivered_by_pr = defaultdict(lambda: Decimal(0))
+    invalid = False
+    for hand in ledger.to_dict("records"):
+        pr = str(hand.get("pr_no"))
+        if pr not in approved_by_pr:
+            continue
+        voided = hand.get("voided_at")
+        if voided is not None and not pd.isna(voided):
+            continue
+        day = as_day(hand.get("delivery_date"))
+        qty = _positive_number(hand.get("quantity"))
+        approved, received_day = approved_by_pr[pr]
+        if day is None or day > today or day < received_day or qty is None:
+            issues.append(f"Entrega física del PR {pr} con fecha o cantidad inconsistente")
+            invalid = True
+            continue
+        delivered_by_pr[pr] += qty
+        events[day].append({
+            "pr": pr, "qty": qty, "nbi": hand.get("received_by_nbi"),
+            "approved": approved, "id": hand.get("id"),
+        })
+        if delivered_by_pr[pr] > approved:
+            issues.append(f"Entrega del PR {pr} excede cantidad aprobada")
+            invalid = True
+
+    full_day = None
+    expected = _positive_number(record.get("approved_qty"))
+    state = record.get("display_state")
+    if (not invalid and len(approved_by_pr) == len(local)
+            and erp_complete is not None and state == "Entregado total"
+            and expected is not None
+            and sum((v[0] for v in approved_by_pr.values()), Decimal(0)) == expected
+            and all(delivered_by_pr[pr] == approved
+                    for pr, (approved, _) in approved_by_pr.items())
+            and events):
+        candidate = max(events)
+        if candidate >= erp_complete:
+            full_day = candidate
+        else:
+            issues.append("Entrega total anterior a recepción ERP completa")
+
+    milestones = []
+    for day, entries in sorted(events.items()):
+        milestones.append({
+            "date": day, "complete": full_day == day, "entries": entries,
+        })
+    return milestones, full_day, list(dict.fromkeys(issues))
+
+
+def build_timeline(source, today, ledger=None, receipt_links=None):
     """One row per SC/position, preserving ordered ERP evidence and warnings."""
     today = as_day(today)
     if today is None:
@@ -189,6 +281,9 @@ def build_timeline(source, today):
         plan = as_day(record.get("planned_date"))
         milestones, complete_at, problems = receipt_milestones(
             record.get("receipt_events"), today
+        )
+        hand_milestones, hand_complete, hand_issues = physical_milestones(
+            record, ledger, receipt_links, today, complete_at
         )
         issues = []
         if approval_count > 1:
@@ -212,19 +307,22 @@ def build_timeline(source, today):
         elif approval and plan <= approval:
             issues.append("Cronología inconsistente")
         issues.extend(problems)
-        # Never construct a closure from approved_qty or manually entered data.
-        cutoff = complete_at if complete_at is not None else today
+        issues.extend(hand_issues)
+        # Only fully reconciled physical delivery closes the grey follow-up.
+        cutoff = hand_complete if hand_complete is not None else today
         span = (plan-approval).days if plan and approval and plan>approval else None
         elapsed = (cutoff-approval).days if span is not None else None
         result.append({
             "label":label,"approval":approval,"po_approval":order,
             "original_plan":original,"plan":plan,"milestones":milestones,
-            "completion":complete_at,"cutoff":cutoff,
+            "physical_milestones":hand_milestones,
+            "completion":complete_at,"handover_completion":hand_complete,
+            "cutoff":cutoff,
             "plan_changed":original != plan if original and plan else None,
             "issues":issues,"issue":issues[0] if issues else None,
             "elapsed_days":max(0,min(span,elapsed)) if span is not None else None,
             "remaining_days":max(0,span-elapsed) if span is not None
-                             and complete_at is None else 0 if span is not None else None,
+                             and hand_complete is None else 0 if span is not None else None,
             "overdue_days":max(0,(cutoff-plan).days) if plan else None,
             "percent":100*max(0,elapsed)/span if span is not None else None,
         })
@@ -245,8 +343,8 @@ def _segments(row, today):
                 yield ("Pedido → Plan original",order,original,ORDER_ORIGINAL)
             if plan is not None and plan>original:
                 yield ("Plan original → Plan actual",original,plan,REPLAN)
-    # Grey is a single background, reaching only the last required PR if
-    # delivered, or today for a still-open PO. Do not paint backwards in time.
+    # Grey closes only on verified physical handover, otherwise at today.
+    # Do not paint backwards in time.
     if plan is not None:
         # When the plan moves earlier, the orange original-plan segment stays
         # visible. Begin grey after that segment, never paint over orange.
@@ -258,7 +356,7 @@ def _segments(row, today):
             grey_start = max(grey_start, order)
             if original is not None and original >= order:
                 grey_start = max(grey_start, original)
-        end = row["completion"] or today
+        end = row["handover_completion"] or today
         if end > grey_start:
             yield ("Pendiente de recepción",grey_start,end,RECEIPT_WAIT)
 
@@ -279,15 +377,37 @@ def _milestone_hover(row, marker):
     return "".join(details)
 
 
+def _handover_hover(row, marker):
+    details = [
+        f"{row['label']}<br>",
+        f"{'Entrega física total' if marker['complete'] else 'Entrega física parcial'}"
+        f" · {marker['date']:%d/%m/%Y}<br>",
+    ]
+    for item in marker["entries"]:
+        nbi = f" · NBI {item['nbi']}" if item.get("nbi") else ""
+        details.append(
+            f"PR {item['pr']}: entrega {item['qty']} / "
+            f"aprobado {item['approved']}{nbi}<br>"
+        )
+    return "".join(details)
+
+
 def timeline_figure(rows, today):
-    """Fixed Plotly single-band timeline; primary-blue partial and green final PR."""
+    """Fixed single-band timeline; deduplicate same-day ERP and handover markers."""
     today = as_day(today)
     if today is None:
         raise ValueError("Fecha actual inválida.")
     fig=go.Figure()
     traces=defaultdict(list)
-    marker_traces={False:{"x":[],"y":[],"tip":[]},
-                   True:{"x":[],"y":[],"tip":[]}}
+    kinds=(
+        ("Recepción parcial",PARTIAL_PR),
+        ("Recepción completa",COMPLETE_PR),
+        ("Entrega física parcial",PARTIAL_HANDOVER),
+        ("Entrega física total",COMPLETE_HANDOVER),
+    )
+    marker_traces={
+        name: {"x":[],"y":[],"tip":[]} for name,_ in kinds
+    }
     dates=[today]
     n=len(rows)
     for i,row in enumerate(rows):
@@ -301,16 +421,25 @@ def timeline_figure(rows, today):
             traces[(name,color)].append((
                 y,left.isoformat(),(right-left).days*86400000,hover
             ))
+        # Group all same-day ERP and physical movements into a single hito.
+        # The visible color is the most advanced stage; hover retains all.
+        dated = defaultdict(list)
         for marker in row.get("milestones",[]):
-            day=marker["date"]
-            if row.get("approval") and day<row["approval"]:
-                # Keep original PR date in the record; do not depict an
-                # impossible receipt before SC approval.
+            name = "Recepción completa" if marker["complete"] else "Recepción parcial"
+            dated[marker["date"]].append((name,_milestone_hover(row,marker)))
+        for marker in row.get("physical_milestones",[]):
+            name = "Entrega física total" if marker["complete"] else "Entrega física parcial"
+            dated[marker["date"]].append((name,_handover_hover(row,marker)))
+        priority = {name: i for i,(name,_) in enumerate(kinds)}
+        for day,events in sorted(dated.items()):
+            if row.get("approval") and day < row["approval"]:
                 continue
             dates.append(day)
-            category=marker["complete"]
-            d=marker_traces[category]
-            tooltip=_milestone_hover(row,marker)
+            visible = max(events,key=lambda e:priority[e[0]])[0]
+            tooltip = "<br><br>".join(text for _,text in sorted(
+                events,key=lambda e:priority[e[0]]
+            ))
+            d=marker_traces[visible]
             d["x"].extend((day.isoformat(),day.isoformat(),None))
             d["y"].extend((y-BAR_WIDTH/2,y+BAR_WIDTH/2,None))
             d["tip"].extend((tooltip,tooltip,None))
@@ -328,11 +457,8 @@ def timeline_figure(rows, today):
             hovertemplate="%{customdata}<extra></extra>",
             showlegend=False,
         ))
-    for is_final,color,title in (
-        (False,PARTIAL_PR,"Recepción parcial"),
-        (True,COMPLETE_PR,"Recepción completa"),
-    ):
-        values=marker_traces[is_final]
+    for title,color in kinds:
+        values=marker_traces[title]
         if not values["x"]:
             continue
         fig.add_trace(go.Scatter(
