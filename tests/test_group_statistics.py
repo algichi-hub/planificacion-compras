@@ -122,7 +122,8 @@ def test_cov_fallback_statuses_and_invalid_numbers():
     assert result["Pend PO"]=="1/2"
     assert result["Full Approved"]=="1/2"
     for invalid in ("NaN","Infinity","abc"):
-        s=pd.DataFrame([entry("1","1","Pendiente aprobación",invalid,10,10,0)])
+        s=pd.DataFrame([{**entry("1","1","Pendiente aprobación",0,10,10,0),
+                         "ordered_qty":invalid}])
         assert group_statistics(items("1"),s,TODAY).iloc[0]["Full Received"]=="0/1"
 
 
