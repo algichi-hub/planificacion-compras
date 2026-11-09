@@ -93,14 +93,25 @@ def _read_management(sql, params=()):
             cur.execute(sql,params)
             return pd.DataFrame(cur.fetchall(),columns=[col.name for col in cur.description])
 
+@st.cache_data(ttl=60,show_spinner=False)
+def available_snapshots():
+    """Small independent metadata cache; no background polling.
+
+    A newly validated snapshot becomes selectable on the next interaction
+    after at most 60 s, without flushing expensive ERP query caches.
+    """
+    return _read_management(
+        "SELECT id,snapshot_date,state FROM audit.snapshots "
+        "WHERE state IN ('active','validated') "
+        "ORDER BY snapshot_date DESC NULLS LAST,id DESC"
+    )
+
 if not connection_string():
     st.info("Configura DATABASE_URL como secreto del despliegue. No incluyas credenciales en Git.")
     st.stop()
 
 try:
-    snapshots=query("SELECT id,snapshot_date,state FROM audit.snapshots "
-                    "WHERE state IN ('active','validated') "
-                    "ORDER BY snapshot_date DESC NULLS LAST,id DESC")
+    snapshots=available_snapshots()
 except Exception as exc:
     st.error(f"No se ha podido consultar Neon: {type(exc).__name__}")
     st.stop()
