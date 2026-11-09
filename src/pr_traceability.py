@@ -5,48 +5,10 @@ Every PR resolves to exactly one verified PO/SC path or receives a diagnostic.
 """
 
 PR_RELATIONS_SQL = """
-WITH settings AS (SELECT %s::bigint AS sid, %s::text[] AS prs),
-receipt_keys AS (
-    SELECT DISTINCT r.receipt_no, r.po_no, r.po_pos
-    FROM core.receipts r
-    WHERE r.snapshot_id=(SELECT sid FROM settings)
-      AND r.receipt_no IN (SELECT unnest(prs) FROM settings)
-),
-po_keys AS (
-    SELECT DISTINCT p.company,p.po_no,p.po_pos
-    FROM receipt_keys r
-    JOIN core.po_lines p ON p.snapshot_id=(SELECT sid FROM settings)
-        AND p.po_no=r.po_no AND p.po_pos=r.po_pos
-),
-vendor_names AS (
-    SELECT sr.fields->>'COMPAÑÍA__0' AS company,
-           sr.fields->>'PEDIDO__16' AS po_no,
-           sr.fields->>'POSICIÓN__17' AS po_pos,
-           min(NULLIF(btrim(sr.fields->>'NOMBRE__24'),'')) AS supplier_name,
-           count(DISTINCT NULLIF(btrim(sr.fields->>'NOMBRE__24'),'')) AS name_count
-    FROM raw.source_rows sr
-    JOIN po_keys k ON k.company=sr.fields->>'COMPAÑÍA__0'
-        AND k.po_no=sr.fields->>'PEDIDO__16'
-        AND k.po_pos=sr.fields->>'POSICIÓN__17'
-    WHERE sr.snapshot_id=(SELECT sid FROM settings)
-      AND sr.source_name='SC_FAS.csv'
-    GROUP BY 1,2,3
-)
-SELECT DISTINCT r.receipt_no AS pr_no,r.po_no,r.po_pos,
-       p.company,l.sc_no,l.sc_pos,l.allocation_status,
-       s.description,s.project,v.supplier_name,v.name_count
-FROM receipt_keys r
-LEFT JOIN core.po_lines p
-    ON p.snapshot_id=(SELECT sid FROM settings)
-    AND p.po_no=r.po_no AND p.po_pos=r.po_pos
-LEFT JOIN core.sc_po_links l
-    ON l.snapshot_id=(SELECT sid FROM settings)
-    AND l.company=p.company AND l.po_no=p.po_no AND l.po_pos=p.po_pos
-LEFT JOIN core.sc_lines s
-    ON s.snapshot_id=(SELECT sid FROM settings)
-    AND s.company=l.company AND s.sc_no=l.sc_no AND s.sc_pos=l.sc_pos
-LEFT JOIN vendor_names v
-    ON v.company=p.company AND v.po_no=p.po_no AND v.po_pos=p.po_pos
+SELECT pr_no,po_no,po_pos,company,sc_no,sc_pos,
+       allocation_status,description,project,supplier_name,name_count
+FROM planning.v_pr_delivery_relations
+WHERE snapshot_id=%s AND pr_no=ANY(%s)
 ORDER BY pr_no,po_no,po_pos
 """
 
