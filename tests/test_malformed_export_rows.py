@@ -124,3 +124,35 @@ def test_existing_description_field_delimiter_repair_regression():
     result=repair_extra_fields(fields,52,"|","SC_FAS.csv")
     assert result is not None
     assert result[9]=="LLAVE DE VASO| RESTO"
+
+
+
+def test_sc_literal_unbalanced_quotes_do_not_consume_next_line(tmp_path):
+    """Regression for concurrent SC_FAS quote-handling change c7493be0."""
+    path=tmp_path/"SC_FAS.csv"
+    path.write_text(
+        "COMPANIA|DESCRIPCION|POSICION\n"
+        '210|"literal sin cierre|10\n'
+        "210|Segunda linea normal|20\n",
+        encoding="cp1252",
+    )
+    rows=list(iter_source(path,"|"))
+    assert len(rows)==2
+    assert [ln for ln,_,_ in rows]==[2,3]
+    assert all(error is None for _,_,error in rows)
+    assert rows[0][1]["DESCRIPCION__1"]=='"literal sin cierre'
+    assert rows[1][1]["POSICION__2"]=="20"
+
+
+def test_non_sc_csv_retains_standard_quoted_field_parsing(tmp_path):
+    """INC source quotes must still protect the semicolon in text fields."""
+    path=tmp_path/"INC_FAS.csv"
+    path.write_text(
+        "A;B;C\n"
+        'x;"dos;terminos";y\n',
+        encoding="cp1252",
+    )
+    rows=list(iter_source(path,";"))
+    assert len(rows)==1
+    assert rows[0][2] is None
+    assert rows[0][1]["B__1"]=="dos;terminos"
