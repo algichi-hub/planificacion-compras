@@ -122,7 +122,7 @@ def test_group_sc_report_does_not_render_status_counts_summary():
     assert 'format_sc_quantities(bulk_view.style).apply(' in group_part
     assert 'overview_row_style,axis=1,today=today_madrid' in group_part
     assert 'column_config=overview_column_config()' in group_part
-    assert 'grouped=group_overview(items,group_status)' in group_part
+    assert 'grouped=group_overview(items,stats_saved[1])' in group_part
     assert 'linked.po_positions,linked.planned_date' in group_part
     assert 'counts.rename_axis("Estado")' not in group_part
     assert 'value_counts()' not in group_part
