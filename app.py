@@ -67,15 +67,9 @@ def hand_deliveries():
         "ORDER BY delivery_date DESC,id DESC"
     )
 
-def enrich_delivery_status(source, snapshot_id):
-    """Annotate only displayed SC positions; no writes or snapshot recomputation."""
-    ledger=hand_deliveries()
-    if source.empty or ledger.empty:
-        return attach_delivery_status(source,pd.DataFrame(),ledger)
-    numbers=tuple(sorted(set(source["sc_no"].dropna().astype(str).tolist())))
-    if not numbers:
-        return attach_delivery_status(source,pd.DataFrame(),ledger)
-    links=query("""SELECT l.company,l.sc_no,l.sc_pos,r.receipt_no,r.approved_qty,
+def _receipt_links_for_sc(snapshot_id, numbers):
+    """Shared cached SQL for Manage PR reconciliation and timeline milestones."""
+    return query("""SELECT l.company,l.sc_no,l.sc_pos,r.receipt_no,r.approved_qty,
                   (SELECT count(*) FROM core.sc_po_links x
                    WHERE x.snapshot_id=l.snapshot_id
                      AND x.po_no=l.po_no AND x.po_pos=l.po_pos) AS owner_count,
@@ -87,7 +81,17 @@ def enrich_delivery_status(source, snapshot_id):
                   WHERE l.snapshot_id=%s AND l.sc_no=ANY(%s)
                   ORDER BY l.company,l.sc_no,l.sc_pos,r.receipt_no""",
                 (int(snapshot_id),list(numbers)))
-    return attach_delivery_status(source,links,ledger)
+
+
+def enrich_delivery_status(source, snapshot_id):
+    """Annotate only displayed SC positions; no writes or snapshot recomputation."""
+    ledger=hand_deliveries()
+    if source.empty or ledger.empty:
+        return attach_delivery_status(source,pd.DataFrame(),ledger)
+    numbers=tuple(sorted(set(source["sc_no"].dropna().astype(str).tolist())))
+    if not numbers:
+        return attach_delivery_status(source,pd.DataFrame(),ledger)
+    return attach_delivery_status(source,_receipt_links_for_sc(snapshot_id,numbers),ledger)
 
 def _read_management(sql, params=()):
     with psycopg.connect(connection_string(),connect_timeout=15) as conn:
@@ -267,7 +271,9 @@ def render_planning_timeline(source, today, key):
     if source.empty:
         st.caption("Sin posiciones SC para representar.")
         return
-    rows=build_timeline(source,today)
+    rows=build_timeline(source,today,
+                        ledger=source.attrs.get("physical_ledger"),
+                        receipt_links=source.attrs.get("receipt_links"))
     # Keep hover details; hide native modebar and prevent zoom/edit actions.
     st.plotly_chart(timeline_figure(rows,today),use_container_width=True,
                     config={"displayModeBar":False,"scrollZoom":False,
@@ -275,10 +281,12 @@ def render_planning_timeline(source, today, key):
                     key=f"{key}_planning_timeline")
     missing=sum(bool(row["issue"]) for row in rows)
     st.caption("Una barra por SC/Pos: SC → pedido (rojo), pedido → plan original "
-               "(naranja), ampliación del plan (rosa pastel) y espera de recepción "
-               "(gris claro). Hitos azules: PR parciales; hito verde: recepción "
-               "completa de las líneas de pedido vinculadas. Se utilizan cantidades "
-               "recibidas ERP, no aprobaciones de calidad. Línea vertical: hoy (Madrid).")
+               "(naranja), ampliación del plan (rosa pastel) y seguimiento "
+               "(gris claro). Azul claro: PR parcial; azul oscuro: recepción ERP "
+               "completa. Morado claro: entrega física parcial; morado oscuro: "
+               "entrega física total verificada, que cierra el gris. En fechas "
+               "coincidentes prevalece el hito más avanzado; el detalle muestra "
+               "todos los eventos. Línea vertical: hoy (Madrid).")
     if missing:
         st.caption(f"{missing} posiciones con hitos incompletos o fechas "
                    "inconsistentes; solo se representan los tramos verificables.")
@@ -509,6 +517,12 @@ with tab2:
                 sc_timeline_source=overview.merge(
                     timeline_cached,on=["company","sc_no","sc_pos"],
                     how="left",sort=False,validate="one_to_one"
+                )
+                # Reuse the exact PR ownership query and cached active
+                # manual ledger used by Manage PR; no write or group changes.
+                sc_timeline_source.attrs["physical_ledger"]=hand_deliveries()
+                sc_timeline_source.attrs["receipt_links"]=_receipt_links_for_sc(
+                    sid,tuple(sorted(set(overview["sc_no"].dropna().astype(str))))
                 )
                 render_planning_timeline(sc_timeline_source,madrid_today,
                                          f"sc_{sid}_{sc_number}")
