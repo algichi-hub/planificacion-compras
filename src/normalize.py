@@ -136,7 +136,13 @@ def iter_source(path, delimiter, encoding="cp1252"):
     """Yield (physical_line, fields, error), preserving documented repairs."""
     source_name=Path(path).name
     with Path(path).open("r",encoding=encoding,errors="replace",newline="") as fh:
-        reader=csv.reader(fh,delimiter=delimiter)
+        # SC_FAS contains literal quotes in unquoted pipe-delimited fields.
+        # Treat those quotes as data to prevent multiline field accumulation.
+        reader=csv.reader(
+            fh,
+            delimiter=delimiter,
+            quoting=csv.QUOTE_NONE if source_name=="SC_FAS.csv" else csv.QUOTE_MINIMAL,
+        )
         header=next(reader)
         header=[clean(x) for x in header]
         if header and not header[-1]:
