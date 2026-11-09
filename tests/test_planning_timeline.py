@@ -310,7 +310,7 @@ def test_sql_source_preserves_single_read_per_overview():
     assert "LEFT JOIN core.receipts r" in sql
     assert sql.count("FROM planning.v_sc_source_detail v")==1
     assert "v.snapshot_id=s.snapshot_id AND v.company=s.company" in sql
-    assert app.count("receipt_closure.receipt_events")==2  # SC + Group, both on demand
+    assert app.count("receipt_closure.receipt_events")==1  # Seguimiento SC only, on demand
     assert "query(" not in app.split("def render_planning_timeline(",1)[1].split(
         "def render_sc_detail(",1
     )[0]
@@ -327,7 +327,7 @@ def test_shared_renderer_and_locked_plotly_config():
     assert "config={\"displayModeBar\":False,\"scrollZoom\":False," in block
     assert "\"doubleClick\":False,\"editable\":False" in block
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in app
-    assert 'render_planning_timeline(timeline_source,madrid_today' in app
+    assert app.count('render_planning_timeline(')==2  # function + Seguimiento SC
     assert app.count('on_select="rerun",selection_mode="single-row"')==2
     assert app.count('render_sc_detail(line, sid, context=')==2
     assert "hand_deliveries.clear()" in app
