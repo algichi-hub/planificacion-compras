@@ -73,7 +73,8 @@ SELECT snapshot_id,company,sc_no,sc_pos,article,description,project,
         WHEN requested_qty IS NULL OR requested_qty<0 OR qty_status NOT IN ('verified','verified_allocated_sum')
              OR ambiguous OR approved_qty>received_qty OR approved_qty<0
              THEN 'Pendiente conciliación'
-        WHEN linked_po=0 OR NOT any_po_approved THEN 'Pendiente pedido'
+        -- Actual receipt or approval is evidence of an operative PO even if its ERP approval date is absent.
+        WHEN linked_po=0 OR (NOT any_po_approved AND NOT (received_qty>0 OR approved_qty>0)) THEN 'Pendiente pedido'
         WHEN approved_qty>=requested_qty THEN 'Completado'
         WHEN approved_qty>0 THEN 'Parcialmente aprobadas'
         WHEN received_qty>0 THEN 'Pendiente aprobación'
@@ -85,6 +86,6 @@ SELECT snapshot_id,company,sc_no,sc_pos,article,description,project,
         WHEN requested_qty IS NULL OR requested_qty<0 OR qty_status NOT IN ('verified','verified_allocated_sum') THEN 'Cantidad SC invalida o ambigua'
         WHEN ambiguous THEN 'Vinculo SC-PO o recepcion ambigua'
         WHEN approved_qty>received_qty OR approved_qty<0 THEN 'Cantidades inconsistentes'
-        WHEN linked_po=0 OR NOT any_po_approved THEN 'Sin PO aprobado'
+        WHEN linked_po=0 OR (NOT any_po_approved AND NOT (received_qty>0 OR approved_qty>0)) THEN 'Sin PO aprobado'
         ELSE NULL END AS workflow_issue
 FROM facts
