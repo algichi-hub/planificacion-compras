@@ -223,8 +223,9 @@ def run_import(args):
                     po_keys=list(summarize_po(sc_records))
                     progress.update(1)
                     progress.set_postfix_str("Writing PO to Neon",refresh=True)
-                    copy_rows(cur,"core.po_lines",["snapshot_id","company","po_no","po_pos","article","vendor","ordered_qty","planned_date"],
-                        ((sid,k[0],k[1],k[2],sample["article"],sample["vendor"],qty,sample["planned"]) for k,sample,qty,status in po_keys))
+                    copy_rows(cur,"core.po_lines",["snapshot_id","company","po_no","po_pos","article","vendor","ordered_qty","planned_date","vendor_name","vendor_name_count"],
+                        ((sid,k[0],k[1],k[2],sample["article"],sample["vendor"],qty,sample["planned"],
+                          sample["vendor_name"],sample["vendor_name_count"]) for k,sample,qty,status in po_keys))
                     progress.update(1)
                     progress.set_postfix_str("Building SC/PO links",refresh=True)
                     po_status={k:status for k,sample,qty,status in po_keys}
