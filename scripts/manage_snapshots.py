@@ -1,4 +1,4 @@
-"""Review and safely delete a non-current snapshot, with an auditable dry-run.
+"""Review and safely delete snapshots, including the latest when an older validated fallback exists.
 
 Usage:
     python scripts/manage_snapshots.py --list
@@ -72,13 +72,26 @@ def delete_snapshot(conn, snapshot_id, confirmation=None):
             cur.execute("SELECT id FROM audit.snapshots WHERE state='validated' "
                         "ORDER BY snapshot_date DESC,id DESC LIMIT 1")
             latest=cur.fetchone()
-            if execute and latest and latest[0]==snapshot_id:
-                raise ValueError("Cannot delete the latest validated snapshot; import a newer snapshot first.")
+            is_latest=bool(latest and latest[0]==snapshot_id)
+            if is_latest:
+                cur.execute("SELECT id FROM audit.snapshots "
+                            "WHERE state='validated' AND id<>%s "
+                            "ORDER BY snapshot_date DESC,id DESC LIMIT 1", (snapshot_id,))
+                replacement=cur.fetchone()
+            else:
+                replacement=None
             counts = count_snapshot_rows(cur, snapshot_id)
             show_plan(snapshot_id, meta, counts)
+            if is_latest:
+                print(f"After deletion, latest validated snapshot: "
+                      f"#{replacement[0]}" if replacement else
+                      "WARNING: deletion would leave no validated snapshot.")
             if not execute:
                 print("DRY RUN ONLY — no records were deleted.")
                 return False
+            if is_latest and replacement is None:
+                raise ValueError("Cannot delete the only validated snapshot; "
+                                 "a validated fallback is required.")
 
             # Store the audit in a table that does not reference the deleted snapshot.
             cur.execute(
