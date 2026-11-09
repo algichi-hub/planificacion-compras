@@ -1,4 +1,4 @@
-"""Review and safely delete a non-active snapshot, with an auditable dry-run.
+"""Review and safely delete a non-current snapshot, with an auditable dry-run.
 
 Usage:
     python scripts/manage_snapshots.py --list
@@ -33,8 +33,6 @@ def validate_request(snapshot_id, confirmation, state):
         raise ValueError("snapshot ID must be a positive integer")
     if state is None:
         raise ValueError(f"snapshot {snapshot_id} does not exist")
-    if state == "active":
-        raise ValueError("ACTIVE snapshots cannot be deleted. Activate a different validated snapshot first.")
     if state not in ("validated", "rejected", "loading"):
         raise ValueError(f"unsupported snapshot state: {state}")
     if confirmation is not None and confirmation != snapshot_id:
@@ -70,6 +68,11 @@ def delete_snapshot(conn, snapshot_id, confirmation=None):
             )
             meta = cur.fetchone()
             execute = validate_request(snapshot_id, confirmation, meta[1] if meta else None)
+            cur.execute("SELECT id FROM audit.snapshots WHERE state='validated' "
+                        "ORDER BY snapshot_date DESC,id DESC LIMIT 1")
+            latest=cur.fetchone()
+            if latest and latest[0]==snapshot_id:
+                raise ValueError("Cannot delete the latest validated snapshot; import a newer snapshot first.")
             counts = count_snapshot_rows(cur, snapshot_id)
             show_plan(snapshot_id, meta, counts)
             if not execute:
@@ -88,7 +91,7 @@ def delete_snapshot(conn, snapshot_id, confirmation=None):
                 cur.execute(f"DELETE FROM {table} WHERE snapshot_id=%s", (snapshot_id,))
                 if cur.rowcount != counts[table]:
                     raise RuntimeError(f"Unexpected deletion count in {table}; transaction rolled back")
-            cur.execute("DELETE FROM audit.snapshots WHERE id=%s AND state<>'active'", (snapshot_id,))
+            cur.execute("DELETE FROM audit.snapshots WHERE id=%s", (snapshot_id,))
             if cur.rowcount != 1:
                 raise RuntimeError("Snapshot state changed; deletion rolled back")
     print(f"Snapshot #{snapshot_id} deleted. Audit retained in audit.snapshot_deletions.")
