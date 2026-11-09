@@ -226,14 +226,15 @@ def physical_milestones(record, ledger, receipt_links, today, erp_complete):
             issues.append(f"Entrega física del PR {pr} con fecha o cantidad inconsistente")
             invalid = True
             continue
+        if delivered_by_pr[pr] + qty > approved:
+            issues.append(f"Entrega del PR {pr} excede cantidad aprobada")
+            invalid = True
+            continue
         delivered_by_pr[pr] += qty
         events[day].append({
             "pr": pr, "qty": qty, "nbi": hand.get("received_by_nbi"),
             "approved": approved, "id": hand.get("id"),
         })
-        if delivered_by_pr[pr] > approved:
-            issues.append(f"Entrega del PR {pr} excede cantidad aprobada")
-            invalid = True
 
     full_day = None
     expected = _positive_number(record.get("approved_qty"))
