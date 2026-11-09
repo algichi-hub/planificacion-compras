@@ -19,7 +19,7 @@ REPLAN = "#F9A8D4"  # Pink pastel: planned-date extension
 RECEIPT_WAIT = "#CBD5E1"
 PARTIAL_PR = "#2563EB"  # Primary blue
 COMPLETE_PR = "#16A34A"
-TODAY_LINE = "#D97706"
+TODAY_LINE = "#475569"
 MISSING = "#64748B"
 
 # Retained public aliases; no other chart's styling is changed.
@@ -364,7 +364,7 @@ def timeline_figure(rows, today):
         showlegend=False,hovermode="closest",
         dragmode=False,
         xaxis={
-            "type":"date","tickformat":"%d/%m","tickangle":180,"fixedrange":True,
+            "type":"date","tickformat":"%d/%m","tickangle":0,"fixedrange":True,
             "range":[(left-timedelta(days=pad)).isoformat(),
                      (right+timedelta(days=pad)).isoformat()],
             "showgrid":True,"gridcolor":"rgba(148,163,184,0.18)",
