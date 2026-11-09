@@ -10,7 +10,7 @@ receipt_keys AS (
     SELECT DISTINCT r.receipt_no, r.po_no, r.po_pos
     FROM core.receipts r
     WHERE r.snapshot_id=(SELECT sid FROM settings)
-      AND r.receipt_no=ANY((SELECT prs FROM settings))
+      AND r.receipt_no IN (SELECT unnest(prs) FROM settings)
 ),
 po_keys AS (
     SELECT DISTINCT p.company,p.po_no,p.po_pos
