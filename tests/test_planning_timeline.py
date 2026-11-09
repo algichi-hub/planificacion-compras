@@ -119,8 +119,8 @@ def test_actual_multi_pr_partial_blue_and_final_green():
     fig=timeline_figure(rows,TODAY)
     partial=pr_lines(fig,False)[0]
     green=pr_lines(fig,True)[0]
-    assert partial.line.color==PARTIAL_PR=="#2563EB"
-    assert green.line.color==COMPLETE_PR=="#16A34A"
+    assert partial.line.color==PARTIAL_PR=="#93C5FD"
+    assert green.line.color==COMPLETE_PR=="#1D4ED8"
     assert partial.line.width==green.line.width==4
     assert list(partial.x[:2])==["2026-04-27","2026-04-27"]
     assert list(green.x[:2])==["2026-06-05","2026-06-05"]
@@ -130,7 +130,7 @@ def test_actual_multi_pr_partial_blue_and_final_green():
     assert "PR 759676" in green.customdata[0]
     gray=bars(fig,"Pendiente de recepción")[0]
     assert gray.base[0]=="2026-04-08"
-    assert gray.x[0]==58*86400000
+    assert gray.x[0]==214*86400000
 
 
 def test_two_pr_same_day_collapse_into_one_green_marker():
@@ -162,7 +162,7 @@ def test_one_single_full_pr_gives_only_green():
     fig=timeline_figure(rows,TODAY)
     assert not pr_lines(fig,False)
     assert len(pr_lines(fig,True))==1
-    assert bars(fig,"Pendiente de recepción")[0].x[0]==7*86400000
+    assert bars(fig,"Pendiente de recepción")[0].x[0]==27*86400000
 
 
 def test_partial_order_stays_open_and_grey_to_today():
@@ -324,7 +324,8 @@ def test_shared_renderer_and_locked_plotly_config():
         "def render_sc_detail(",1
     )[0]
     assert "ampliación del plan (rosa pastel)" in block
-    assert "Hitos azules: PR parciales" in block
+    assert "Azul claro: PR parcial; azul oscuro: recepción ERP " in block
+    assert "Morado claro: entrega física parcial; morado oscuro: " in block
     assert "config={\"displayModeBar\":False,\"scrollZoom\":False," in block
     assert "\"doubleClick\":False,\"editable\":False" in block
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in app
