@@ -57,7 +57,7 @@ def test_no_manual_data_keeps_dash_and_renames_erp_state():
     result=attach_delivery_status(base_rows(),links(),pd.DataFrame())
     visible=overview_display(result)
     assert list(visible.columns)==list(DISPLAY_COLUMNS)
-    assert DISPLAY_COLUMNS[-2:]==("Ent","estado")
+    assert DISPLAY_COLUMNS[-3:]==("Ent","estado","PRs")
     assert visible["Ent"].tolist()==["—","—"]
     assert visible["estado"].tolist()==[RECEIPT_COMPLETE,"Parcialmente aprobadas"]
     assert "color: #15803D" not in unquote(visible.iloc[0][" "])
