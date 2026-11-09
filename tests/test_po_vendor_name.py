@@ -18,7 +18,7 @@ def row(vendor_name="PROVEEDOR INDUSTRIAL, S.L."):
     values[19]="3"
     values[23]="N00452"
     values[24]=vendor_name
-    return parse_sc(values)
+    return parse_sc(dict(enumerate(values)))
 
 
 def test_supplier_name_is_imported_from_native_field_24():
