@@ -10,7 +10,7 @@ from src.planned_date_style import planned_date_style
 
 DISPLAY_COLUMNS = (
     " ", "Proyecto", "SC/Pos", "PO/Pos", "article", "description",
-    "fecha_plan", "Sol", "Ped", "Rec", "Apr", "Ent", "estado",
+    "fecha_plan", "Sol", "Ped", "Rec", "Apr", "Ent", "estado", "PRs",
 )
 
 
@@ -56,6 +56,9 @@ def overview_display(source):
     else:
         result["Ent"] = "—"
     result["estado"] = state.map(present_state)
+    # PR identifiers are text, already aggregated against the selected snapshot.
+    result["PRs"] = (source["pr_numbers"].fillna("—")
+                     if "pr_numbers" in source.columns else "—")
     return result.loc[:, list(DISPLAY_COLUMNS)]
 
 
