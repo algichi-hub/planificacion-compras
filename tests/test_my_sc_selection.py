@@ -62,7 +62,9 @@ def test_ui_two_widget_keys_are_independent_and_detail_is_child_only():
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     assert '["Resumen","Seguimiento SC","Mis SC","Manage SC","Manage PR"]' in app
     assert 'st.subheader("Mis SC")' in group
-    assert 'st.button("Resumen"' in group
+    assert 'st.button("Resumen"' not in group
+    assert 'if not stats_ready:' in group
+    assert 'st.selectbox("Grupo SC"' not in group
     assert "Consultar grupo" not in group
     assert 'sc_event=st.dataframe(' in group
     assert 'event_group=st.dataframe(' in group
