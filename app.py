@@ -16,6 +16,7 @@ from src.timeline_visibility import sync_context, reset_timeline, toggle_timelin
 from src.sc_overview import overview_display, overview_row_style
 from src.delivery_status import attach_delivery_status, present_state
 from src.group_sc_view import group_overview, group_overview_source
+from src.my_sc_selection import sync_my_sc_context, reset_my_sc_selection
 from src.group_statistics import group_statistics
 from src.snapshot_selection import latest_snapshot_id
 from src.quantity_format import format_sc_quantities
@@ -147,7 +148,7 @@ if project!="Todos":
     where+=" AND project=%s"
     params.append(project)
 
-tab1,tab2,tab3,tab4,tab5=st.tabs(["Resumen","Seguimiento SC","Group SC","Manage SC","Manage PR"])
+tab1,tab2,tab3,tab4,tab5=st.tabs(["Resumen","Seguimiento SC","Mis SC","Manage SC","Manage PR"])
 has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
 workflow_ready=False
 if has_workflow_table:
@@ -566,8 +567,8 @@ except psycopg.Error:
     groups=pd.DataFrame(columns=["id","name","description"])
 
 with tab3:
-    st.subheader("Group SC")
-    st.caption("Estadística de compras, recepción y aprobación por SC. Los datos corresponden al snapshot seleccionado.")
+    st.subheader("Mis SC")
+    st.caption("Resumen y detalle de compras, recepción y aprobación por SC del snapshot seleccionado.")
     if groups.empty:
         st.info("Todavía no hay grupos SC disponibles.")
     else:
@@ -582,12 +583,13 @@ with tab3:
         if items.empty:
             st.info("Este grupo todavía no tiene SC asociadas.")
         else:
-            # No group table, detailed report or PR timeline on initial view.
-            # The summary query is only made after clicking Estadística.
+            # Lazy summary: no position details until the user selects a SC.
             group_key=(sid,group_id,tuple(items["sc_no"].astype(str).tolist()))
+            selection_revision=sync_my_sc_context(st.session_state,group_key)
             stats_saved=st.session_state.get("group_statistics_result")
             stats_ready=bool(stats_saved and stats_saved[0]==group_key)
-            if st.button("Estadística",type="primary",key="group_sc_statistics"):
+            if st.button("Resumen",type="primary",key="group_sc_statistics"):
+                selection_revision=reset_my_sc_selection(st.session_state)
                 numbers=items["sc_no"].astype(str).tolist()
                 source_table=("planning.sc_workflow_status" if workflow_ready
                               else "planning.v_sc_coverage")
@@ -604,13 +606,13 @@ with tab3:
                                        THEN btrim(s.sc_pos)::numeric END NULLS LAST,
                                    s.sc_pos""",(sid,numbers))
                 st.session_state["group_statistics_result"]=(group_key,group_status)
-                st.session_state.pop("bulk_result",None)
                 stats_saved=st.session_state["group_statistics_result"]
                 stats_ready=True
             if stats_ready:
                 today_madrid=datetime.now(ZoneInfo("Europe/Madrid")).date()
                 stat_table=group_statistics(items,stats_saved[1],today_madrid)
-                st.dataframe(
+                # Native single-row checkbox selection, empty on every new summary.
+                sc_event=st.dataframe(
                     stat_table,hide_index=True,use_container_width=True,
                     column_config={
                         "Num SC":st.column_config.TextColumn("Num SC",width="small"),
@@ -621,21 +623,27 @@ with tab3:
                         **{name:st.column_config.TextColumn(name,width="small")
                            for name in ("Pend PO","Pass Date","Full Received","Full Approved")},
                     },
-                    key=f"group_stats_{sid}_{group_id}",
+                    on_select="rerun",selection_mode="single-row",
+                    key=f"my_sc_summary_{sid}_{group_id}_{selection_revision}",
                 )
-                # Only this second action reveals the detailed position report.
-                if st.button("Consultar grupo",key="group_sc_report"):
-                    group_source=group_overview_source(items,stats_saved[1])
-                    grouped=group_overview(items,stats_saved[1])
-                    st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)
-                stored=st.session_state.get("bulk_result")
-                if stored and stored[0]==sid and stored[1]==group_id:
-                    group_source=enrich_delivery_status(stored[3],sid)
+                if sc_event.selection.rows:
+                    selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])
+                    # Filter the already loaded group frame without a new
+                    # ERP status query. Keep absent snapshot references visible.
+                    chosen_items=items.loc[items["sc_no"].astype(str).eq(selected_sc)]
+                    chosen_status=stats_saved[1].loc[
+                        stats_saved[1]["sc_no"].astype(str).eq(selected_sc)
+                    ]
+                    group_source=group_overview_source(chosen_items,chosen_status)
+                    group_source=enrich_delivery_status(group_source,sid)
                     bulk_view=overview_display(group_source)
-                    # Preserve identifiers of SC absent from the snapshot.
                     missing=group_source["sc_pos"].isna()
-                    bulk_view.loc[missing,"SC/Pos"]=stored[2].loc[missing,"SC/Pos"]
-                    st.caption(f"{len(items)} SC · {len(bulk_view)} posiciones o referencias")
+                    bulk_view.loc[missing,"SC/Pos"]=group_source.loc[missing,"sc_no"]
+                    st.markdown(f"#### Posiciones SC {selected_sc}")
+                    st.caption(f"{len(bulk_view)} posiciones o referencias. "
+                               "Selecciona una posición para consultar su detalle.")
+                    # The child widget key tracks the parent SC, so selecting a
+                    # different SC can never inherit a previous position.
                     event_group=st.dataframe(
                         format_sc_quantities(bulk_view.style).apply(
                             overview_row_style,axis=1,today=today_madrid
@@ -643,11 +651,13 @@ with tab3:
                         hide_index=True,use_container_width=True,
                         column_config=overview_column_config(),
                         on_select="rerun",selection_mode="single-row",
-                        key=f"group_sc_overview_{sid}_{group_id}",
+                        key=f"my_sc_positions_{sid}_{group_id}_{selection_revision}_{selected_sc}",
                     )
-                    sc_export_button(bulk_view,
-                                     f"group_sc_{group_id}_snapshot_{sid}.csv",
-                                     f"export_group_{sid}_{group_id}")
+                    sc_export_button(
+                        bulk_view,
+                        f"group_sc_{group_id}_sc_{selected_sc}_snapshot_{sid}.csv",
+                        f"export_group_{sid}_{group_id}_{selection_revision}_{selected_sc}",
+                    )
                     if event_group.selection.rows:
                         selected_index=event_group.selection.rows[0]
                         line=group_source.iloc[selected_index]
