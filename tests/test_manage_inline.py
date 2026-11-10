@@ -27,8 +27,9 @@ def test_manage_is_aggrid_not_form_matrix():
     assert 'write_bulk(admin_dsn,identity,admin_emails,"insert_item"' in manage
     assert 'write_bulk(admin_dsn,identity,admin_emails,"edit_item"' in manage
     assert 'write_bulk(admin_dsn,identity,admin_emails,"remove_item"' in manage
-    assert 'with st.expander("Modificar grupo"):' in manage
-    assert 'with st.expander("Eliminar grupo"):' in manage
+    assert 'with st.expander("Modificar grupo"):' not in manage
+    assert 'with st.expander("Eliminar grupo"):' not in manage
+    assert "group_id_manage=MY_SC_GROUP_ID" in manage
 
 
 def test_insert_item_parameterized_preserves_leading_zeros(monkeypatch):
@@ -49,13 +50,13 @@ def test_insert_item_parameterized_preserves_leading_zeros(monkeypatch):
 
     monkeypatch.setattr(bulk_sc.psycopg, "connect", lambda *a, **kw: Conn())
     result = write_bulk("writer", ADMIN, "admin@example.com",
-                        "insert_item", group_id=3, sc_no="000761452",
+                        "insert_item", group_id=1, sc_no="000761452",
                         description="Material A")
     assert result == 42
     sql, params = executed[0]
     assert "ON CONFLICT (group_id,sc_no) DO NOTHING" in sql
     assert "planning.bulk_sc_items" in sql
-    assert params == (3, "000761452", "Material A")
+    assert params == (1, "000761452", "Material A")
     assert "core." not in sql
 
 
@@ -77,7 +78,7 @@ def test_duplicate_insert_fails_without_overwriting(monkeypatch):
     monkeypatch.setattr(bulk_sc.psycopg, "connect", lambda *a, **kw: Conn())
     with pytest.raises(ValueError, match="ya existe"):
         write_bulk("writer", ADMIN, "admin@example.com",
-                   "insert_item", group_id=3, sc_no="761452",
+                   "insert_item", group_id=1, sc_no="761452",
                    description="Otro contenido")
 
 
