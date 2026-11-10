@@ -10,3 +10,7 @@ CREATE TABLE core.pr_approval_dates (
 );
 CREATE INDEX pr_approval_dates_by_po
  ON core.pr_approval_dates(snapshot_id,po_no,po_pos);
+
+-- Least privilege: the import role may populate dates; dashboard is read-only.
+GRANT SELECT, INSERT ON core.pr_approval_dates TO compras_importer;
+GRANT SELECT ON core.pr_approval_dates TO compras_reader;
