@@ -56,23 +56,25 @@ def test_migration_keeps_user_lists_separate_from_erp():
         assert word not in sql
 
 
-def test_separate_group_reporting_and_manage_tab_with_admin_gate():
+def test_fixed_my_sc_dashboard_and_existing_editor_are_kept():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     assert '["Resumen","Seguimiento SC","Mis SC","Manage SC","Manage PR"]' in app
-    assert "with tab3:" in app and "with tab4:" in app
-    group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    manage_part=app.split("with tab4:",1)[1]
-    assert "Consultar grupo" not in group_part
-    assert "Mis SC" in group_part
-    assert "write_bulk(" not in group_part
-    assert "write_bulk(" in manage_part
-    assert "remove_group" in manage_part and "edit_group" in manage_part
-    assert '"REAC / Incidencias","Calidad de datos"' not in app
-    assert "admin=is_bulk_admin(identity,admin_emails) and bool(admin_dsn)" in app
-    assert 'with st.expander("Crear grupo"):' in app
-    assert 'if not admin:' in manage_part and '    else:\n        with st.expander("Crear grupo"):' in manage_part
-    assert "write_bulk(admin_dsn,identity,admin_emails" in app
-    assert 'st.login("google")' in app and "st.logout()" in app
+    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    manage=app.split("with tab4:",1)[1].split("with tab5:",1)[0]
+    assert 'group_id=MY_SC_GROUP_ID' in group
+    assert 'if not stats_ready:' in group
+    assert 'st.button("Resumen"' not in group
+    assert 'st.selectbox("Grupo SC"' not in group
+    assert "render_sc_detail(line, sid, context=\"group\")" in group
+    assert "group_id_manage=MY_SC_GROUP_ID" in manage
+    assert "Grupo para gestionar" not in manage
+    for label in ("Crear grupo","Modificar grupo","Eliminar grupo"):
+        assert label not in manage
+    for operation in ('"insert_item"', '"edit_item"', '"remove_item"'):
+        assert operation in manage
+    assert 'render_manage_grid()' in manage
+    assert 'admin=is_bulk_admin(identity,admin_emails) and bool(admin_dsn)' in app
+    assert 'st.login("google")' in app and 'st.logout()' in app
 
 
 def test_streamlit_oidc_auth_extra_and_dependencies_installed():
@@ -83,14 +85,27 @@ def test_streamlit_oidc_auth_extra_and_dependencies_installed():
     assert importlib.util.find_spec("httpx") is not None
 
 
-def test_group_writes_authorized_parameterized_and_restricted_to_user_tables(monkeypatch):
+def test_group_management_operations_are_blocked_before_connect(monkeypatch):
+    from src import bulk_sc
+    monkeypatch.setattr(bulk_sc.psycopg,"connect",
+                        lambda *a,**kw: pytest.fail("No connection allowed for group writes"))
+    user={"is_logged_in":True,"email_verified":True,"email":"admin@example.com"}
+    for operation,kwargs in [
+        ("create_group",{"name":"Grupo A"}),
+        ("edit_group",{"group_id":1,"name":"New name"}),
+        ("remove_group",{"group_id":1}),
+    ]:
+        with pytest.raises(ValueError,match="deshabilitada"):
+            write_bulk("test-dsn",user,"admin@example.com",operation,**kwargs)
+
+
+def test_existing_item_operations_keep_parameterized_sql(monkeypatch):
     from src import bulk_sc
     executed=[]
     class Cursor:
         def __enter__(self): return self
         def __exit__(self,*args): return False
-        def execute(self,sql,params):
-            executed.append((sql,params))
+        def execute(self,sql,params): executed.append((sql,params))
         def fetchone(self): return (7,)
     class Conn:
         def __enter__(self): return self
@@ -99,22 +114,24 @@ def test_group_writes_authorized_parameterized_and_restricted_to_user_tables(mon
         def cursor(self): return Cursor()
     monkeypatch.setattr(bulk_sc.psycopg,"connect",lambda *a,**kw: Conn())
     user={"is_logged_in":True,"email_verified":True,"email":"admin@example.com"}
-    for operation,kwargs in [
-        ("create_group",{"name":"Grupo A","description":"Descripción A"}),
-        ("edit_group",{"group_id":7,"name":"Grupo B","description":"Descripción B"}),
-        ("remove_group",{"group_id":7}),
-        ("edit_item",{"group_id":7,"item_id":3,"sc_no":"000421","description":"Componente cambiado"}),
-    ]:
-        assert write_bulk("test-dsn",user,"admin@example.com",operation,**kwargs)==7
-    assert len(executed)==4
-    assert all("%s" in sql for sql,_ in executed)
-    assert all("planning.bulk_sc_groups" in sql for sql,_ in executed[:3])
-    assert "planning.bulk_sc_items" in executed[3][0]
-    assert executed[0][1]==("Grupo A","Descripción A")
-    assert executed[1][1]==("Grupo B","Descripción B",7)
-    assert executed[2][1]==(7,)
-    assert executed[3][1]==("000421","Componente cambiado",3,7)
-    assert all("core." not in sql and "raw." not in sql for sql,_ in executed)
+    assert write_bulk("test-dsn",user,"admin@example.com","edit_item",
+                      group_id=1,item_id=3,sc_no="000421",
+                      description="Componente cambiado")==7
+    assert executed == [(
+        "UPDATE planning.bulk_sc_items SET sc_no=%s,context_description=%s, "
+        "updated_at=now() WHERE id=%s AND group_id=%s RETURNING id",
+        ("000421","Componente cambiado",3,1),
+    )]
+    with pytest.raises(ValueError,match="Mis SC"):
+        write_bulk("test-dsn",user,"admin@example.com","edit_item",
+                   group_id=2,item_id=3,description="Incorrect")
+
+
+def test_my_sc_group_privileges_revoked_without_modifying_items():
+    migration=(ROOT/"migrations/017_freeze_my_sc_group.sql").read_text(encoding="utf-8")
+    assert "REVOKE INSERT, DELETE ON TABLE planning.bulk_sc_groups" in migration
+    assert "REVOKE UPDATE (name,description,updated_at)" in migration
+    assert "DELETE FROM" not in migration and "UPDATE planning.bulk_sc_items" not in migration
 
 
 def test_group_sc_report_does_not_render_status_counts_summary():
@@ -236,28 +253,21 @@ def test_group_source_keeps_selection_index_and_company_position_keys():
 
 
 
-def test_bulk_group_rename_permission_migration_is_least_privilege():
-    """The writer needs only group-metadata UPDATE, never ERP privileges."""
-    sql=(ROOT/"migrations/012_bulk_sc_group_update_privilege.sql").read_text(
-        encoding="utf-8"
-    ).lower()
-    assert "grant update (name, description, updated_at)" in sql
-    assert "on table planning.bulk_sc_groups to bulk_sc_writer" in sql
-    assert "grant update on " not in sql
-    assert "core." not in sql and "raw." not in sql
-    assert "grant delete" not in sql and "grant all" not in sql
+def test_group_metadata_write_privileges_are_not_used():
     writer=(ROOT/"src/bulk_sc.py").read_text(encoding="utf-8")
-    assert "UPDATE planning.bulk_sc_groups SET name=%s,description=%s,updated_at=now()" in writer
-    assert "WHERE id=%s RETURNING id" in writer
-    assert "INSERT INTO planning.bulk_sc_groups" in writer
+    assert 'if operation in ("create_group", "edit_group", "remove_group")' in writer
+    assert "INSERT INTO planning.bulk_sc_groups" not in writer
+    assert "UPDATE planning.bulk_sc_groups" not in writer
+    assert "DELETE FROM planning.bulk_sc_groups" not in writer
 
 
 def test_group_sc_statistics_and_detail_are_explicitly_requested():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     block=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert 'st.button("Resumen",type="primary",key="group_sc_statistics")' in block
+    assert 'st.button("Resumen"' not in block
+    assert 'if not stats_ready:' in block
     assert "Consultar grupo" not in block
-    assert block.index('st.button("Resumen"') < block.index('sc_event=st.dataframe(')
+    assert block.index('if not stats_ready:') < block.index('sc_event=st.dataframe(')
     assert block.index('sc_event=st.dataframe(') < block.index('event_group=st.dataframe(')
     assert 'stat_table=group_statistics(items,stats_saved[1],today_madrid)' in block
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in block
