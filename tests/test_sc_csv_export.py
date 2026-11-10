@@ -77,7 +77,7 @@ def test_both_views_share_pr_projection_export_and_selection():
     assert "lr.sc_no=s.sc_no AND lr.sc_pos=s.sc_pos" in app
     assert "r.po_no=lr.po_no AND r.po_pos=lr.po_pos" in app
     assert "sc_export_button(visible_overview," in sc
-    assert "sc_export_button(bulk_view," in group
+    assert "sc_export_button(\n                        bulk_view," in group
     assert sc.index("sc_export_button") > sc.index("event=st.dataframe(")
     assert group.index("sc_export_button") > group.index("event_group=st.dataframe(")
     assert 'selection_mode="single-row"' in sc
