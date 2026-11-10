@@ -11,7 +11,7 @@ def test_manage_updates_do_not_flush_erp_query_cache():
     assert "@st.cache_data(ttl=600,show_spinner=False)\ndef group_items" in app
     assert "groups=group_catalogue()" in app
     assert "items=group_items(group_id)" in app
-    assert "group_catalogue.clear()" in app
+    assert "group_catalogue.clear()" not in app
     assert "group_items.clear()" in app
 
 
@@ -41,9 +41,9 @@ def test_group_management_updates_invalidate_only_group_data():
     assert 'st.session_state.pop("bulk_result",None)' in refresh
     assert "query.clear()" not in refresh
     assert "group_catalogue.clear()" not in refresh
-    # A metadata change must invalidate catalogue AND membership, not the ERP cache.
-    assert manage.count("group_catalogue.clear()")==3
-    assert manage.count("group_items.clear()")==4
+    # The immutable group no longer has metadata write paths.
+    assert manage.count("group_catalogue.clear()")==0
+    assert manage.count("group_items.clear()")==1
 
 
 def test_no_new_polling_or_database_writes_in_group_report():
