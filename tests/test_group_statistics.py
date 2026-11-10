@@ -143,10 +143,10 @@ def test_group_frontend_has_stats_only_and_sc_timeline_unchanged():
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
-    assert "st.button(\"Estadística\"" in group
+    assert "st.button(\"Resumen\"" in group
     assert 'stat_table=group_statistics(items,stats_saved[1],today_madrid)' in group
-    assert group.index("if stats_ready:") < group.index('st.button("Consultar grupo"')
-    assert group.index('st.button("Consultar grupo"') < group.index('event_group=st.dataframe(')
+    assert group.index("if stats_ready:") < group.index("sc_event=st.dataframe(")
+    assert group.index("sc_event=st.dataframe(") < group.index("event_group=st.dataframe(")
     assert "render_planning_timeline(" not in group
     assert "timeline_visible(" not in group
     assert "group_timeline" not in group
