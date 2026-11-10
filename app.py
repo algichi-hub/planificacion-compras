@@ -21,7 +21,7 @@ from src.group_statistics import group_statistics
 from src.snapshot_selection import latest_snapshot_id
 from src.quantity_format import format_sc_quantities
 from src.sc_csv_export import sc_overview_csv
-from src.bulk_sc import is_bulk_admin, write_bulk
+from src.bulk_sc import MY_SC_GROUP_ID, is_bulk_admin, write_bulk
 from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize_quantity,
                                     normalize_delivery_date, normalize_nbi, duplicate_warning)
 from src.pr_batch_import import parse_pr_batch, batch_digest, batch_warnings, insert_pr_batch
@@ -569,16 +569,10 @@ except psycopg.Error:
 with tab3:
     st.subheader("Mis SC")
     st.caption("Resumen y detalle de compras, recepción y aprobación por SC del snapshot seleccionado.")
-    if groups.empty:
-        st.info("Todavía no hay grupos SC disponibles.")
+    if MY_SC_GROUP_ID not in groups["id"].tolist():
+        st.error("No se encuentra el grupo interno Mis SC; no se modifican las SC existentes.")
     else:
-        group_id=int(st.selectbox(
-            "Grupo SC",groups["id"].tolist(),key="group_sc_select",
-            format_func=lambda x:groups.loc[groups.id==x,"name"].iloc[0],
-        ))
-        group_record=groups.loc[groups.id==group_id].iloc[0]
-        if str(group_record["description"] or "").strip():
-            st.caption(str(group_record["description"]))
+        group_id=MY_SC_GROUP_ID
         items=group_items(group_id)
         if items.empty:
             st.info("Este grupo todavía no tiene SC asociadas.")
@@ -588,8 +582,7 @@ with tab3:
             selection_revision=sync_my_sc_context(st.session_state,group_key)
             stats_saved=st.session_state.get("group_statistics_result")
             stats_ready=bool(stats_saved and stats_saved[0]==group_key)
-            if st.button("Resumen",type="primary",key="group_sc_statistics"):
-                selection_revision=reset_my_sc_selection(st.session_state)
+            if not stats_ready:
                 numbers=items["sc_no"].astype(str).tolist()
                 source_table=("planning.sc_workflow_status" if workflow_ready
                               else "planning.v_sc_coverage")
@@ -668,7 +661,7 @@ with tab3:
 
 with tab4:
     st.subheader("Manage SC")
-    st.caption("Administración de grupos y componentes SC. Requiere acceso de administrador.")
+    st.caption("Administración de líneas de Mis SC. Requiere acceso de administrador.")
     try:
         auth_configured=bool(st.secrets.get("auth"))
         admin_emails=str(st.secrets.get("BULK_ADMIN_EMAILS",""))
@@ -689,28 +682,10 @@ with tab4:
     if not admin:
         st.info("La gestión requiere una cuenta administradora verificada y la conexión de escritura restringida.")
     else:
-        with st.expander("Crear grupo"):
-            with st.form("bulk_create_group"):
-                new_group=st.text_input("Nombre del grupo",max_chars=160)
-                new_description=st.text_area("Descripción del grupo",max_chars=500)
-                if st.form_submit_button("Guardar grupo"):
-                    try:
-                        write_bulk(admin_dsn,identity,admin_emails,"create_group",
-                                   name=new_group,description=new_description)
-                        group_catalogue.clear()
-                        group_items.clear()
-                        st.session_state.pop("bulk_result",None)
-                        st.session_state.pop("group_statistics_result",None)
-                        st.rerun()
-                    except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                        st.error(f"No se pudo guardar el grupo: {type(exc).__name__}")
-
-        if not groups.empty:
-            group_id_manage=int(st.selectbox(
-                "Grupo para gestionar",groups["id"].tolist(),key="manage_group_select",
-                format_func=lambda x:groups.loc[groups.id==x,"name"].iloc[0],
-            ))
-            selected_group=groups.loc[groups.id==group_id_manage].iloc[0]
+        if MY_SC_GROUP_ID not in groups["id"].tolist():
+            st.error("No se encuentra el grupo interno Mis SC.")
+        else:
+            group_id_manage=MY_SC_GROUP_ID
             items_manage=group_items(group_id_manage)
             st.caption("Edita las celdas directamente. Se guardan al confirmar la edición.")
             draft_key=f"manage_grid_drafts_{group_id_manage}"
@@ -885,42 +860,6 @@ with tab4:
                     st.rerun(scope="fragment")
 
             render_manage_grid()
-
-            with st.expander("Modificar grupo"):
-                with st.form(f"bulk_edit_group_{group_id_manage}"):
-                    updated_name=st.text_input("Nombre",value=str(selected_group["name"]),max_chars=160)
-                    updated_description=st.text_area(
-                        "Descripción",value=str(selected_group["description"] or ""),max_chars=500
-                    )
-                    if st.form_submit_button("Guardar cambios"):
-                        try:
-                            write_bulk(admin_dsn,identity,admin_emails,"edit_group",
-                                       group_id=group_id_manage,name=updated_name,
-                                       description=updated_description)
-                            group_catalogue.clear()
-                            group_items.clear()
-                            st.session_state.pop("bulk_result",None)
-                            st.session_state.pop("group_statistics_result",None)
-                            st.rerun()
-                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                            st.error(f"No se pudo modificar el grupo: {type(exc).__name__}")
-
-            with st.expander("Eliminar grupo"):
-                st.warning("Eliminar el grupo también retira todas sus SC del grupo. No modifica las SC del ERP.")
-                with st.form(f"bulk_remove_group_{group_id_manage}"):
-                    confirmed=st.checkbox("Confirmo la eliminación del grupo y todos sus componentes")
-                    if st.form_submit_button("Eliminar grupo") and confirmed:
-                        try:
-                            write_bulk(admin_dsn,identity,admin_emails,"remove_group",
-                                       group_id=group_id_manage)
-                            group_catalogue.clear()
-                            group_items.clear()
-                            st.session_state.pop("bulk_result",None)
-                            st.session_state.pop("group_statistics_result",None)
-                            st.rerun()
-                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                            st.error(f"No se pudo eliminar el grupo: {type(exc).__name__}")
-
 
 
 with tab5:
