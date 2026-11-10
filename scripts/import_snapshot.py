@@ -15,6 +15,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from src.normalize import iter_source,decimal_es,date_es,is_real_po,indexed
 from src.reconcile import parse_sc,parse_receipt,parse_incident,summarize_sc,summarize_po
 from scripts.build_sc_workflow import classify
+from src.pr_approval_import import import_approval_dates
 
 SOURCES={"SC_FAS.csv":"|","INC_FAS.csv":";","Recepciones_Sevilla.csv":";"}
 IMPORTER_REVISION="p2_receipt_decimal_dot_v1"
@@ -119,6 +120,9 @@ def run_import(args):
             raise SystemExit(f"Required input missing: {root/name}")
     print("[1/5] Calculating file hashes...",flush=True)
     hashes={name:sha256(root/name) for name in SOURCES}
+    extra_path=root/"RecepcionesTotales.csv"
+    if extra_path.is_file():
+        hashes["RecepcionesTotales.csv"]=sha256(extra_path)
     cutoff=parse_cutoff(getattr(args,"from_date",None))
     selected_sc_keys,conflicts=(approved_sc_selection(root/"SC_FAS.csv",cutoff)
                                if cutoff is not None else (None,{}))
@@ -266,6 +270,12 @@ def run_import(args):
                 print("[4/5] Calculating SC workflow classification...",flush=True)
                 classified_count=finalize_import(db,cur,sid)
                 print(f"Classified {classified_count:,} SC positions.",flush=True)
+                if extra_path.is_file():
+                    print("Conciliating PR approval dates (fourth source)...",flush=True)
+                    approval_counts=import_approval_dates(
+                        cur,sid,extra_path,date.fromisoformat(args.date),
+                        hashes["RecepcionesTotales.csv"])
+                    print("Fourth-source PR reconciliation:",dict(approval_counts),flush=True)
                 print("[5/5] Finalizing transaction...",flush=True)
         print("Validated snapshot",sid,"date",args.date)
         print("Source counts:",counts)
