@@ -97,9 +97,9 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     assert "render_planning_timeline(" not in before_toggle
 
     # Group SC has no timeline, but the initial view is still lazy.
-    assert 'st.button("Estadística",type="primary",key="group_sc_statistics")' in group
+    assert 'st.button("Resumen",type="primary",key="group_sc_statistics")' in group
     assert 'if stats_ready:' in group
-    assert 'if st.button("Consultar grupo",key="group_sc_report"):' in group
+    assert 'if sc_event.selection.rows:' in group
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
     assert group.count("po_link_overview")==1
     assert "po_link_summary" not in group
@@ -143,7 +143,7 @@ def test_group_statistics_sql_does_not_have_dangling_comma():
         encoding="utf-8"
     )
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    overview=group.split('if st.button("Estadística"',1)[1].split(
+    overview=group.split('if st.button("Resumen"',1)[1].split(
         'st.session_state["group_statistics_result"]',1
     )[0]
     assert "linked.po_positions,linked.planned_date" in overview
