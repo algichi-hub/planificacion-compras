@@ -58,11 +58,12 @@ def test_migration_keeps_user_lists_separate_from_erp():
 
 def test_separate_group_reporting_and_manage_tab_with_admin_gate():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert '["Resumen","Seguimiento SC","Group SC","Manage SC","Manage PR"]' in app
+    assert '["Resumen","Seguimiento SC","Mis SC","Manage SC","Manage PR"]' in app
     assert "with tab3:" in app and "with tab4:" in app
     group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     manage_part=app.split("with tab4:",1)[1]
-    assert "Consultar grupo" in group_part
+    assert "Consultar grupo" not in group_part
+    assert "Mis SC" in group_part
     assert "write_bulk(" not in group_part
     assert "write_bulk(" in manage_part
     assert "remove_group" in manage_part and "edit_group" in manage_part
@@ -122,7 +123,7 @@ def test_group_sc_report_does_not_render_status_counts_summary():
     assert 'format_sc_quantities(bulk_view.style).apply(' in group_part
     assert 'overview_row_style,axis=1,today=today_madrid' in group_part
     assert 'column_config=overview_column_config()' in group_part
-    assert 'grouped=group_overview(items,stats_saved[1])' in group_part
+    assert 'group_source=group_overview_source(chosen_items,chosen_status)' in group_part
     assert 'linked.po_positions,linked.planned_date' in group_part
     assert 'counts.rename_axis("Estado")' not in group_part
     assert 'value_counts()' not in group_part
@@ -254,15 +255,15 @@ def test_bulk_group_rename_permission_migration_is_least_privilege():
 def test_group_sc_statistics_and_detail_are_explicitly_requested():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     block=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert 'st.button("Estadística",type="primary",key="group_sc_statistics")' in block
-    assert 'if st.button("Consultar grupo",key="group_sc_report"):' in block
-    assert block.index('st.button("Estadística"') < block.index(
-        "st.dataframe(\n                    stat_table"
-    ) < block.index('st.button("Consultar grupo"')
+    assert 'st.button("Resumen",type="primary",key="group_sc_statistics")' in block
+    assert "Consultar grupo" not in block
+    assert block.index('st.button("Resumen"') < block.index('sc_event=st.dataframe(')
+    assert block.index('sc_event=st.dataframe(') < block.index('event_group=st.dataframe(')
     assert 'stat_table=group_statistics(items,stats_saved[1],today_madrid)' in block
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in block
     assert 'stats_ready=bool(stats_saved and stats_saved[0]==group_key)' in block
-    assert 'st.session_state["bulk_result"]=(sid,group_id,grouped,group_source)' in block
+    assert 'selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])' in block
+    assert "chosen_items=items.loc[" in block
     assert "po_link_overview" in block
     for forbidden in ("po_link_summary","receipt_closure.","timeline_dates.",
                       "render_planning_timeline(","Cargar cronograma",
