@@ -27,6 +27,7 @@ STATUS_SYMBOLS = {
     "Parcialmente aprobadas": ("clock_loader_10", "#2563EB"),
     "SC anulada": ("close", "#6B7280"),
     "Pendiente conciliación": ("gpp_maybe", "#6B7280"),
+    "Pendiente verificación": ("gpp_maybe", "#D97706"),
     "complete": ("check_circle", "#15803D"),
     "partial": ("clock_loader_10", "#2563EB"),
     "no_approved_coverage": ("search", "#EAB308"),
