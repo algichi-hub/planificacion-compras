@@ -159,7 +159,7 @@ def test_app_reconciles_at_view_time_and_does_not_write_erp():
     assert "x.receipt_no=r.receipt_no" in app
     assert "x.po_no=l.po_no AND x.po_pos=l.po_pos" in app
     assert "overview=enrich_delivery_status(overview,sid)" in app
-    assert "group_source=enrich_delivery_status(stored[3],sid)" in app
+    assert "group_source=enrich_delivery_status(group_source,sid)" in app
     assert "bulk_view=overview_display(group_source)" in app
     assert "format_sc_quantities(visible_overview.style)" in app
     assert "format_sc_quantities(bulk_view.style)" in app
