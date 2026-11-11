@@ -142,3 +142,28 @@ def test_snapshot_import_preflights_before_all_database_side_effects():
     bat=(Path(__file__).resolve().parents[1]/"scripts/snapshot_semanal_windows.bat").read_text()
     assert "COMPRAS_ZIP_PASSWORD" in bat
     assert "scripts\\import_snapshot.py" in bat
+
+
+def test_failed_second_replacement_restores_all_previous_csv_and_manifest(tmp_path,monkeypatch):
+    from scripts import prepare_input_zip as manager
+    original=valid_files()
+    encrypted_zip(tmp_path,original)
+    prepare_inputs(tmp_path,"example-secret")
+    previous_manifest=(tmp_path/STATE_NAME).read_bytes()
+    changed={name:data+b"NEW\\r\\n" for name,data in original.items()}
+    encrypted_zip(tmp_path,changed)
+    real_replace=manager.os.replace
+    interrupted={"yes":False}
+
+    def fail_once(src,dst):
+        if Path(dst).name == "INC_FAS.csv" and not interrupted["yes"]:
+            interrupted["yes"]=True
+            raise OSError("simulated Windows file lock")
+        return real_replace(src,dst)
+
+    monkeypatch.setattr(manager.os,"replace",fail_once)
+    with pytest.raises(InputArchiveError,match="previous files restored"):
+        prepare_inputs(tmp_path,"example-secret")
+    assert interrupted["yes"] is True
+    assert all((tmp_path/name).read_bytes()==data for name,data in original.items())
+    assert (tmp_path/STATE_NAME).read_bytes()==previous_manifest
