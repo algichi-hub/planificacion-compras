@@ -295,4 +295,4 @@ def test_group_sql_is_split_without_changing_other_timeline_queries():
     assert "receipt_closure" not in head
     assert "planning.v_sc_source_detail" in tail
     assert "core.receipts" in tail
-    assert app.count("po_link_summary+")==1  # Exclusively Seguimiento SC deferred
+    assert app.count("po_link_summary+")==2  # Both views defer PR events until opened
