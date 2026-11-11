@@ -57,3 +57,28 @@ def test_snapshot_cli_records_success_and_error_types_only():
     assert 'log_event(args.input, "SNAPSHOT_FAILED"' in importer
     assert 'error_type=type(exc).__name__' in importer
     assert importer.index('log_event(root, "SNAPSHOT_VALIDATED"') > importer.index('classified_count=finalize_import(')
+
+
+def test_standalone_cli_resolves_src_import_without_pythonpath(tmp_path):
+    """Execute exactly like Windows: python scripts/prepare_input_zip.py --input."""
+    import os
+    import subprocess
+    import sys
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "prepare_input_zip.py"
+    folder = tmp_path / "entrada"
+    folder.mkdir()
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, str(script), "--input", str(folder)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 1
+    assert "Required ZIP missing" in result.stderr
+    assert "ModuleNotFoundError" not in result.stderr
+    assert "ZIP_CHECK_ERROR" in history_path(folder).read_text(encoding="utf-8")
