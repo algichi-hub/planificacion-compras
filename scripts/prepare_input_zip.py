@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import tempfile
+import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -152,7 +153,7 @@ def prepare_inputs(folder, password=None):
                             shutil.copyfileobj(src, dst, length=1024 * 1024)
                         _check_csv(stage / name, name)
                         hashes[name] = digest(stage / name)
-            except (RuntimeError, ValueError, OSError, EOFError) as exc:
+            except (RuntimeError, ValueError, OSError, EOFError, zipfile.BadZipFile, NotImplementedError) as exc:
                 if isinstance(exc, InputArchiveError):
                     raise
                 raise InputArchiveError(
@@ -188,3 +189,14 @@ def prepare_inputs(folder, password=None):
                         (folder / name).unlink(missing_ok=True)
                 raise InputArchiveError("Failed to replace CSVs: previous files restored") from exc
         return True
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description="Validate and synchronize an encrypted procurement ZIP")
+    ap.add_argument("--input", default="entrada", help="Folder containing planificacion-compras.zip")
+    args = ap.parse_args()
+    try:
+        changed = prepare_inputs(args.input)
+    except InputArchiveError as exc:
+        ap.exit(1, f"ZIP preflight failed: {exc}\\n")
+    print("CSV files updated" if changed else "ZIP unchanged; four CSVs verified")
