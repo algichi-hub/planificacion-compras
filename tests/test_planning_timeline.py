@@ -611,3 +611,74 @@ def test_duplicate_pr_links_cannot_generate_physical_marker_or_close():
     assert all(
         item["pr"] != "10001" for marker in markers for item in marker["entries"]
     )
+
+
+# Additional dated approval evidence never changes ERP/handover state.
+def test_aux_approval_yellow_milestone_and_existing_blue_unchanged():
+    from src.planning_timeline import APPROVAL_PR
+    events=[{**event(pr="P1",day="2026-10-19",received=6),
+             "pr_approval_date":"2026-10-22"}]
+    rows=model(record(original="10/10/26",plan=date(2026,10,12),events=events))
+    assert rows[0]["completion"] is None
+    fig=timeline_figure(rows,TODAY)
+    yellow=[t for t in fig.data if t.type=="scatter" and t.name=="Aprobación PR"]
+    assert len(yellow)==1 and yellow[0].line.color==APPROVAL_PR=="#FFFF00"
+    assert list(yellow[0].x[:2])==["2026-10-22","2026-10-22"]
+    assert "PR P1" in yellow[0].customdata[0]
+    assert len(pr_lines(fig,False))==1
+    assert not pr_lines(fig,True)
+
+
+def test_aux_approval_same_day_preserves_blue_and_shares_hover():
+    events=[{**event(pr="P1",day="2026-10-19",received=20),
+             "pr_approval_date":"2026-10-19"}]
+    rows=model(record(events=events))
+    fig=timeline_figure(rows,TODAY)
+    blue=pr_lines(fig,True)[0]
+    yellow=next(t for t in fig.data if t.name=="Aprobación PR")
+    assert list(blue.x[:2])==list(yellow.x[:2])
+    assert yellow.y[0] > blue.y[0]
+    assert yellow.y[1]==blue.y[1]
+    assert "Aprobación PR" in blue.customdata[0]
+    assert "Recepción completa" in yellow.customdata[0]
+
+
+def test_aux_approval_multiple_partial_pr_same_day_one_yellow_line():
+    events=[
+        {**event(pr="A",day="2026-10-17",received=6),
+         "pr_approval_date":"2026-10-22"},
+        {**event(pr="B",day="2026-10-18",received=5,source_line=2),
+         "pr_approval_date":"2026-10-22"},
+    ]
+    fig=timeline_figure(model(record(events=events)),TODAY)
+    yellow=next(t for t in fig.data if t.name=="Aprobación PR")
+    assert len(yellow.x)==3
+    assert "PR A" in yellow.customdata[0]
+    assert "PR B" in yellow.customdata[0]
+
+
+def test_aux_approval_absent_or_invalid_never_invents_marker():
+    for approval in (None,"", "bad","2026-10-16","2026-11-09"):
+        events=[{**event(pr="P1",day="2026-10-17",received=20),
+                 "pr_approval_date":approval}]
+        fig=timeline_figure(model(record(events=events)),TODAY)
+        assert not any(t.name=="Aprobación PR" for t in fig.data)
+
+
+def test_aux_approval_unknown_snapshot_original_chart_unchanged():
+    base=[event(pr="P1",day="2026-10-17",received=20)]
+    absent=[{**base[0],"pr_approval_date":None}]
+    fig1=timeline_figure(model(record(events=base)),TODAY)
+    fig2=timeline_figure(model(record(events=absent)),TODAY)
+    assert fig1.to_plotly_json()==fig2.to_plotly_json()
+
+
+def test_aux_approval_does_not_change_completion_or_physical_ledger():
+    events=[{**event(pr="P1",day="2026-10-17",received=20),
+             "pr_approval_date":"2026-10-19"}]
+    raw=record(events=events)
+    without=record(events=[event(pr="P1",day="2026-10-17",received=20)])
+    x=model(raw)[0]
+    y=model(without)[0]
+    for field in ("completion","handover_completion","cutoff","milestones","physical_milestones"):
+        assert x[field]==y[field]
