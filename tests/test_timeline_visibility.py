@@ -103,17 +103,9 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     assert 'if sc_event.selection.rows:' in group
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
     assert group.count("po_link_overview")==1
-    # The fourth-source timeline is strictly lazy: no PR-event SQL until opened.
-    assert group.count("po_link_summary")==1
-    assert group.index('if timeline_visible(st.session_state,"my_sc"):') < group.index(
-        'timeline_cached=query(f"""SELECT s.company,s.sc_no,s.sc_pos,'
-    )
-    before_toggle=group.split('if timeline_visible(st.session_state,"my_sc"):',1)[0]
-    assert "po_link_summary" not in before_toggle
-    assert "render_planning_timeline(" not in before_toggle
-    assert 'sync_context(st.session_state,"my_sc",' in group
-    assert 'on_click=toggle_timeline,args=(st.session_state,"my_sc")' in group
-    assert 'render_planning_timeline(my_timeline_source,today_madrid,' in group
+    assert "po_link_summary" not in group
+    assert "render_planning_timeline(" not in group
+    assert 'render_my_sc_timeline_control(group_source,sid,group_id,' in group
     assert 'render_sc_detail(line, sid, context="group")' in group
     assert 'render_sc_detail(line, sid, context="seguimiento")' in sc
 
@@ -207,19 +199,20 @@ def test_my_sc_context_hidden_until_selected_and_independent_from_followup():
     assert state["sc_timeline_data"]==["followup events"]
 
 
-def test_identical_sc_query_and_renderer_between_views():
+def test_same_source_fields_and_renderer_for_both_lazy_views():
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    helper=app.split("def render_my_sc_timeline_control(",1)[1].split(
+        "def render_planning_timeline(",1)[0]
     sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    start='SELECT s.company,s.sc_no,s.sc_pos,'
-    end='ORDER BY s.company,s.sc_no,s.sc_pos'
-    def projection(text):
-        return text.split('timeline_cached=query(f"""',1)[1].split(end,1)[0]
-    # Both use exactly the same source columns, lateral joins and renderer.
+    end="ORDER BY s.company,s.sc_no,s.sc_pos"
     sc_query=sc.split('timeline_data=query(f"""',1)[1].split(end,1)[0]
-    my_query=projection(group)
+    my_query=helper.split('timeline_cached=query(f"""',1)[1].split(end,1)[0]
     assert ''.join(sc_query.split())==''.join(my_query.split())
+    assert 'if not timeline_visible(st.session_state,"my_sc"):\n        return' in helper
+    assert helper.index('if not timeline_visible(') < helper.index("timeline_cached=query(")
+    assert 'render_planning_timeline(timeline_source,today,' in helper
     assert 'render_planning_timeline(sc_timeline_source,madrid_today,' in sc
-    assert 'render_planning_timeline(my_timeline_source,today_madrid,' in group
-    assert 'how="left",sort=False,validate="one_to_one"' in group
+    assert 'render_planning_timeline(' not in group
+    assert 'st.button("Resumen"' not in group
