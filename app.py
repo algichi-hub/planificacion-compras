@@ -296,6 +296,40 @@ def overview_column_config():
             help="Estado operativo SC"),
     }
 
+def render_my_sc_timeline_control(source, snapshot_id, group_id, revision, sc_number, today):
+    """Independent and lazy; no PR-event read until the selected SC opens it."""
+    sync_context(st.session_state,"my_sc",(snapshot_id,group_id,revision,sc_number))
+    st.button(
+        "Ocultar cronograma" if timeline_visible(st.session_state,"my_sc")
+        else "Mostrar cronograma",
+        key=f"my_sc_timeline_toggle_{snapshot_id}_{group_id}_{revision}_{sc_number}",
+        on_click=toggle_timeline,args=(st.session_state,"my_sc")
+    )
+    if not timeline_visible(st.session_state,"my_sc"):
+        return
+    timeline_cached=st.session_state.get("my_sc_timeline_data")
+    if timeline_cached is None:
+        source_table=("planning.sc_workflow_status" if workflow_ready
+                      else "planning.v_sc_coverage")
+        timeline_cached=query(f"""SELECT s.company,s.sc_no,s.sc_pos,
+            timeline_dates.approval_raw,timeline_dates.approval_distinct,
+            timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
+            timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
+            receipt_closure.receipt_events
+            FROM {source_table} s
+            """+po_link_summary+"""
+            WHERE s.snapshot_id=%s AND s.sc_no=%s
+            ORDER BY s.company,s.sc_no,s.sc_pos""",(snapshot_id,sc_number))
+        st.session_state["my_sc_timeline_data"]=timeline_cached
+    timeline_source=source.loc[source["sc_pos"].notna()].merge(
+        timeline_cached,on=["company","sc_no","sc_pos"],
+        how="left",sort=False,validate="one_to_one"
+    )
+    timeline_source.attrs["physical_ledger"]=hand_deliveries()
+    timeline_source.attrs["receipt_links"]=_receipt_links_for_sc(snapshot_id,(sc_number,))
+    render_planning_timeline(timeline_source,today,f"my_sc_{snapshot_id}_{sc_number}")
+
+
 def render_planning_timeline(source, today, key):
     """Same date-based schedule for SC and Group SC; no database reads."""
     st.markdown("#### Cronograma de planificación")
@@ -651,51 +685,13 @@ with tab3:
                         on_select="rerun",selection_mode="single-row",
                         key=f"my_sc_positions_{sid}_{group_id}_{selection_revision}_{selected_sc}",
                     )
-                    csv_col, timeline_col = st.columns(2)
-                    with csv_col:
-                        sc_export_button(
-                            bulk_view,
-                            f"group_sc_{group_id}_sc_{selected_sc}_snapshot_{sid}.csv",
-                            f"export_group_{sid}_{group_id}_{selection_revision}_{selected_sc}",
-                        )
-                    # The selected SC owns its own hidden-by-default lazy timeline.
-                    sync_context(st.session_state,"my_sc",
-                                 (sid,group_id,selection_revision,selected_sc))
-                    with timeline_col:
-                        st.button(
-                            "Ocultar cronograma" if timeline_visible(st.session_state,"my_sc")
-                            else "Mostrar cronograma",
-                            key=f"my_sc_timeline_toggle_{sid}_{group_id}_{selection_revision}_{selected_sc}",
-                            on_click=toggle_timeline,args=(st.session_state,"my_sc")
-                        )
-                    if timeline_visible(st.session_state,"my_sc"):
-                        timeline_cached=st.session_state.get("my_sc_timeline_data")
-                        if timeline_cached is None:
-                            source_table=("planning.sc_workflow_status" if workflow_ready
-                                          else "planning.v_sc_coverage")
-                            timeline_cached=query(f"""SELECT s.company,s.sc_no,s.sc_pos,
-                                timeline_dates.approval_raw,timeline_dates.approval_distinct,
-                                timeline_dates.original_plan_raw,timeline_dates.original_plan_distinct,
-                                timeline_dates.po_approval_raw,timeline_dates.po_approval_distinct,
-                                receipt_closure.receipt_events
-                                FROM {source_table} s
-                                """+po_link_summary+"""
-                                WHERE s.snapshot_id=%s AND s.sc_no=%s
-                                ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,selected_sc))
-                            st.session_state["my_sc_timeline_data"]=timeline_cached
-                        my_timeline_source=group_source.merge(
-                            timeline_cached,on=["company","sc_no","sc_pos"],
-                            how="left",sort=False,validate="one_to_one"
-                        )
-                        my_timeline_source=my_timeline_source.loc[
-                            my_timeline_source["sc_pos"].notna()
-                        ].copy()
-                        my_timeline_source.attrs["physical_ledger"]=hand_deliveries()
-                        my_timeline_source.attrs["receipt_links"]=_receipt_links_for_sc(
-                            sid,(selected_sc,)
-                        )
-                        render_planning_timeline(my_timeline_source,today_madrid,
-                                                 f"my_sc_{sid}_{selected_sc}")
+                    sc_export_button(
+                        bulk_view,
+                        f"group_sc_{group_id}_sc_{selected_sc}_snapshot_{sid}.csv",
+                        f"export_group_{sid}_{group_id}_{selection_revision}_{selected_sc}",
+                    )
+                    render_my_sc_timeline_control(group_source,sid,group_id,
+                                                  selection_revision,selected_sc,today_madrid)
                     if event_group.selection.rows:
                         selected_index=event_group.selection.rows[0]
                         line=group_source.iloc[selected_index]
