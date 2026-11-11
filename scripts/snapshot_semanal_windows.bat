@@ -5,11 +5,11 @@ if not exist ".venv\Scripts\python.exe" (
   echo Instala las dependencias antes de continuar.
   exit /b 1
 )
-if "%COMPRAS_ZIP_PASSWORD%"=="" (
+if not defined COMPRAS_ZIP_PASSWORD (
   echo Falta COMPRAS_ZIP_PASSWORD en el entorno de la tarea programada.
   exit /b 3
 )
-if "%DATABASE_URL%"=="" (
+if not defined DATABASE_URL (
   echo Falta DATABASE_URL en el entorno. Nunca guardes credenciales en este BAT.
   exit /b 2
 )
