@@ -69,9 +69,9 @@ def test_purchasing_intervals_and_pink_extension():
     red=bars(fig,"SC → Pedido aprobado")[0]
     orange=bars(fig,"Pedido → Plan original")[0]
     pink=bars(fig,"Plan original → Plan actual")[0]
-    assert red.marker.color==SC_ORDER=="#DC2626"
-    assert orange.marker.color==ORDER_ORIGINAL=="#F59E0B"
-    assert pink.marker.color==REPLAN=="#F9A8D4"
+    assert red.marker.color==SC_ORDER=="#FAD4CF"
+    assert orange.marker.color==ORDER_ORIGINAL=="#E9E1D8"
+    assert pink.marker.color==REPLAN=="#FAD4CF"
     assert red.base[0]=="2026-09-25"
     assert red.x[0]==15*86400000
     assert orange.base[0]=="2026-10-10"
@@ -95,7 +95,7 @@ def test_open_order_grey_to_today_if_plan_already_passed():
     data=model(record(plan=date(2026,10,20),original="15/10/26"))[0]
     fig=timeline_figure([data],TODAY)
     gray=bars(fig,"Pendiente de recepción")[0]
-    assert gray.marker.color==RECEIPT_WAIT=="#CBD5E1"
+    assert gray.marker.color==RECEIPT_WAIT=="#E9ECEF"
     assert gray.base[0]=="2026-10-20"
     assert gray.x[0]==19*86400000
     assert data["completion"] is None
@@ -121,7 +121,7 @@ def test_actual_multi_pr_partial_blue_and_final_green():
     partial=pr_lines(fig,False)[0]
     green=pr_lines(fig,True)[0]
     assert partial.line.color==PARTIAL_PR=="#93C5FD"
-    assert green.line.color==COMPLETE_PR=="#1D4ED8"
+    assert green.line.color==COMPLETE_PR=="#005CFF"
     assert partial.line.width==green.line.width==4
     assert list(partial.x[:2])==["2026-04-27","2026-04-27"]
     assert list(green.x[:2])==["2026-06-05","2026-06-05"]
@@ -454,8 +454,8 @@ def test_physical_partial_and_full_markers_with_extended_grey():
         assert traces[0].line.color==color
         assert traces[0].line.width==4
         assert traces[0].x[0]==expected
-    assert PARTIAL_PR=="#93C5FD" and COMPLETE_PR=="#1D4ED8"
-    assert PARTIAL_HANDOVER=="#C4B5FD" and COMPLETE_HANDOVER=="#6D28D9"
+    assert PARTIAL_PR=="#93C5FD" and COMPLETE_PR=="#005CFF"
+    assert PARTIAL_HANDOVER=="#86D76B" and COMPLETE_HANDOVER=="#008000"
     gray=bars(fig,"Pendiente de recepción")[0]
     assert gray.base[0]=="2026-09-18"
     assert gray.x[0]==18*86400000
@@ -682,3 +682,18 @@ def test_aux_approval_does_not_change_completion_or_physical_ledger():
     y=model(without)[0]
     for field in ("completion","handover_completion","cutoff","milestones","physical_milestones"):
         assert x[field]==y[field]
+
+
+def test_shared_versioned_default_palette_and_replan_matches_sc():
+    from src.timeline_colors import (
+        DEFAULT_TIMELINE_PALETTE, TIMELINE_PALETTES, DEFAULT_COLORS,
+    )
+    from src.planning_timeline import APPROVAL_PR
+    assert DEFAULT_TIMELINE_PALETTE == "compras_pastel_v1"
+    assert DEFAULT_COLORS is TIMELINE_PALETTES[DEFAULT_TIMELINE_PALETTE]
+    assert SC_ORDER == REPLAN == DEFAULT_COLORS["sc_order"] == "#FAD4CF"
+    assert ORDER_ORIGINAL == "#E9E1D8"
+    assert RECEIPT_WAIT == "#E9ECEF"
+    assert PARTIAL_PR == "#93C5FD" and COMPLETE_PR == "#005CFF"
+    assert APPROVAL_PR == "#FFFF00"
+    assert PARTIAL_HANDOVER == "#86D76B" and COMPLETE_HANDOVER == "#008000"
