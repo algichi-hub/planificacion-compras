@@ -312,7 +312,7 @@ def test_sql_source_preserves_single_read_per_overview():
     assert "LEFT JOIN core.receipts r" in sql
     assert sql.count("FROM planning.v_sc_source_detail v")==1
     assert "v.snapshot_id=s.snapshot_id AND v.company=s.company" in sql
-    assert app.count("receipt_closure.receipt_events")==1  # Seguimiento SC only, on demand
+    assert app.count("receipt_closure.receipt_events")==2  # Two lazy timeline views
     assert "query(" not in app.split("def render_planning_timeline(",1)[1].split(
         "def render_sc_detail(",1
     )[0]
