@@ -113,3 +113,45 @@ def test_inc_reac_are_supplementary_not_workflow_states():
     assert "WHEN has_reac OR has_incident THEN 'Pendiente conciliación'" not in QUERY
     assert "'REAC (provisional)'" not in QUERY
     assert "'Recibido con incidencia (provisional)'" not in QUERY
+
+
+def test_pr_approval_dates_in_deleted_children_and_dry_run_counts():
+    from scripts.manage_snapshots import CHILD_TABLES, TABLES
+    assert "core.pr_approval_dates" in CHILD_TABLES
+    assert CHILD_TABLES.index("core.pr_approval_dates") < len(CHILD_TABLES)
+    assert TABLES[-1] == "audit.snapshots"
+
+
+def test_fk_dependency_check_rejects_new_unlisted_referencing_table():
+    from scripts.manage_snapshots import validate_snapshot_dependencies
+    class Cursor:
+        def execute(self, sql):
+            assert "pg_constraint" in sql
+            assert "audit.snapshots" in sql
+        def fetchall(self):
+            return [("core.pr_approval_dates",), ("audit.import_issues",),
+                    ("core.some_new_fk_table",)]
+    with pytest.raises(ValueError, match="core.some_new_fk_table"):
+        validate_snapshot_dependencies(Cursor())
+
+
+def test_fk_dependency_check_accepts_known_tables():
+    from scripts.manage_snapshots import validate_snapshot_dependencies, CHILD_TABLES
+    class Cursor:
+        def execute(self, sql):
+            assert "pg_constraint" in sql
+        def fetchall(self):
+            return [(table,) for table in CHILD_TABLES]
+    validate_snapshot_dependencies(Cursor())
+
+
+def test_dependency_guard_runs_before_delete_even_for_confirmed_request():
+    import inspect
+    from scripts.manage_snapshots import delete_snapshot
+    source=inspect.getsource(delete_snapshot)
+    assert source.index("validate_snapshot_dependencies(cur)") < source.index(
+        "counts = count_snapshot_rows(cur, snapshot_id)"
+    )
+    assert source.index("validate_snapshot_dependencies(cur)") < source.index(
+        'INSERT INTO audit.snapshot_deletions'
+    )
