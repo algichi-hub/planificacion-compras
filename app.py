@@ -236,12 +236,14 @@ po_link_summary=po_link_overview+"""
                  'po_no',ev.po_no,'po_pos',ev.po_pos,
                  'po_qty',ev.ordered_qty,'allocation_status',ev.allocation_status,
                  'pr_no',ev.receipt_no,'pr_date',ev.receipt_date,
+                  'pr_approval_date',ev.pr_approval_date,
                  'delivered_qty',ev.delivered_qty,'source_line',ev.source_line
              ) ORDER BY ev.receipt_date NULLS LAST,ev.source_line,ev.po_no,ev.po_pos
              ) AS receipt_events
       FROM (
           SELECT l.po_no,l.po_pos,l.allocation_status,p.ordered_qty,
                  r.source_line,r.receipt_no,r.receipt_date,r.delivered_qty,
+                 a.approval_date AS pr_approval_date,
                  sum(coalesce(r.approved_qty,0)) OVER
                     (ORDER BY r.receipt_date,r.source_line ROWS UNBOUNDED PRECEDING)
                     AS cumulative_approved,
@@ -264,6 +266,9 @@ po_link_summary=po_link_overview+"""
                (l.snapshot_id,l.company,l.po_no,l.po_pos)
           LEFT JOIN core.receipts r
             ON (r.snapshot_id,r.po_no,r.po_pos)=(l.snapshot_id,l.po_no,l.po_pos)
+          LEFT JOIN core.pr_approval_dates a
+            ON (a.snapshot_id,a.pr_no,a.po_no,a.po_pos)=
+               (r.snapshot_id,r.receipt_no,r.po_no,r.po_pos)
           WHERE l.snapshot_id=s.snapshot_id AND l.company=s.company
             AND l.sc_no=s.sc_no AND l.sc_pos=s.sc_pos
       ) ev
