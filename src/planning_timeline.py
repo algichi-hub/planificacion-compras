@@ -19,6 +19,7 @@ REPLAN = "#F9A8D4"  # Pink pastel: planned-date extension
 RECEIPT_WAIT = "#CBD5E1"
 PARTIAL_PR = "#93C5FD"  # Light blue: partial ERP receipt
 COMPLETE_PR = "#1D4ED8"  # Dark blue: full ERP receipt
+APPROVAL_PR = "#FFFF00"  # Pure yellow: dated PR approval from fourth CSV
 PARTIAL_HANDOVER = "#C4B5FD"  # Light purple: partial physical handover
 COMPLETE_HANDOVER = "#6D28D9"  # Dark purple: verified full physical handover
 TODAY_LINE = "#475569"
@@ -169,6 +170,34 @@ def receipt_milestones(raw_events, today):
     return milestones, complete_at, list(dict.fromkeys(issues))
 
 
+
+def approval_milestones(raw_events, today):
+    """Verified auxiliary dates per PR; never imply an approved quantity.
+
+    One milestone per day, collecting partial and total PR approvals without
+    multiplying source receipt rows or changing ERP completion logic.
+    """
+    by_day = defaultdict(list)
+    seen = set()
+    for event in _raw_events(raw_events):
+        if not isinstance(event, dict) or event.get("pr_no") is None:
+            continue
+        day = as_day(event.get("pr_approval_date"))
+        received = as_day(event.get("pr_date"))
+        if (day is None or day > today or received is None
+                or day < received or event.get("allocation_status") != "verified"):
+            continue
+        key = (str(event.get("pr_no")), str(event.get("po_no")),
+               str(event.get("po_pos")))
+        if key in seen:
+            continue
+        seen.add(key)
+        by_day[day].append({"pr": key[0], "po": f"{key[1]}/{key[2]}",
+                            "receipt_date": received})
+    return [{"date": day, "entries": entries}
+            for day, entries in sorted(by_day.items())]
+
+
 def physical_milestones(record, ledger, receipt_links, today, erp_complete):
     """Dated physical events for unambiguous, approved ERP PRs of this SC.
 
@@ -287,6 +316,7 @@ def build_timeline(source, today, ledger=None, receipt_links=None):
         milestones, complete_at, problems = receipt_milestones(
             record.get("receipt_events"), today
         )
+        approval_marks = approval_milestones(record.get("receipt_events"), today)
         hand_milestones, hand_complete, hand_issues = physical_milestones(
             record, ledger, receipt_links, today, complete_at
         )
@@ -321,6 +351,7 @@ def build_timeline(source, today, ledger=None, receipt_links=None):
             "label":label,"approval":approval,"po_approval":order,
             "original_plan":original,"plan":plan,"milestones":milestones,
             "physical_milestones":hand_milestones,
+            "approval_milestones":approval_marks,
             "completion":complete_at,"handover_completion":hand_complete,
             "cutoff":cutoff,
             "plan_changed":original != plan if original and plan else None,
@@ -397,6 +428,17 @@ def _handover_hover(row, marker):
     return "".join(details)
 
 
+
+def _approval_hover(row, marker):
+    details = [f"{row['label']}<br>Aprobación PR · {marker['date']:%d/%m/%Y}<br>"]
+    for item in marker["entries"]:
+        details.append(
+            f"Pedido/Pos {item['po']} · PR {item['pr']}"
+            f" · recepción {item['receipt_date']:%d/%m/%Y}<br>"
+        )
+    return "".join(details)
+
+
 def timeline_figure(rows, today):
     """Fixed single-band timeline; deduplicate same-day ERP and handover markers."""
     today = as_day(today)
@@ -407,6 +449,7 @@ def timeline_figure(rows, today):
     kinds=(
         ("Recepción parcial",PARTIAL_PR),
         ("Recepción completa",COMPLETE_PR),
+        ("Aprobación PR",APPROVAL_PR),
         ("Entrega física parcial",PARTIAL_HANDOVER),
         ("Entrega física total",COMPLETE_HANDOVER),
     )
@@ -435,19 +478,32 @@ def timeline_figure(rows, today):
         for marker in row.get("physical_milestones",[]):
             name = "Entrega física total" if marker["complete"] else "Entrega física parcial"
             dated[marker["date"]].append((name,_handover_hover(row,marker)))
+        for marker in row.get("approval_milestones",[]):
+            dated[marker["date"]].append(("Aprobación PR",_approval_hover(row,marker)))
         priority = {name: i for i,(name,_) in enumerate(kinds)}
         for day,events in sorted(dated.items()):
             if row.get("approval") and day < row["approval"]:
                 continue
             dates.append(day)
-            visible = max(events,key=lambda e:priority[e[0]])[0]
+            primary_events = [e for e in events if e[0] != "Aprobación PR"]
+            approval_events = [e for e in events if e[0] == "Aprobación PR"]
             tooltip = "<br><br>".join(text for _,text in sorted(
                 events,key=lambda e:priority[e[0]]
             ))
-            d=marker_traces[visible]
-            d["x"].extend((day.isoformat(),day.isoformat(),None))
-            d["y"].extend((y-BAR_WIDTH/2,y+BAR_WIDTH/2,None))
-            d["tip"].extend((tooltip,tooltip,None))
+            if primary_events:
+                visible = max(primary_events,key=lambda e:priority[e[0]])[0]
+                d=marker_traces[visible]
+                d["x"].extend((day.isoformat(),day.isoformat(),None))
+                d["y"].extend((y-BAR_WIDTH/2,y+BAR_WIDTH/2,None))
+                d["tip"].extend((tooltip,tooltip,None))
+            if approval_events:
+                # On coincident dates, yellow occupies only the upper half:
+                # existing blue/purple ERP/handover line remains visible below.
+                d=marker_traces["Aprobación PR"]
+                d["x"].extend((day.isoformat(),day.isoformat(),None))
+                d["y"].extend((y if primary_events else y-BAR_WIDTH/2,
+                               y+BAR_WIDTH/2,None))
+                d["tip"].extend((tooltip,tooltip,None))
         if row["approval"]:
             dates.append(row["approval"])
         if row["plan"]:
