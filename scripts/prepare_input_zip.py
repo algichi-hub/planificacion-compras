@@ -16,10 +16,9 @@ from pathlib import Path
 
 import pyzipper
 
-from src.import_history import log_event
-
-# Also support direct execution: python scripts/prepare_input_zip.py.
+# Resolve the project root before importing src, including direct script execution.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.import_history import log_event
 
 ARCHIVE = "planificacion-compras.zip"
 FILES = (
