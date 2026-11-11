@@ -326,7 +326,7 @@ def test_shared_renderer_and_locked_plotly_config():
     )[0]
     assert "ampliación del plan" in block
     assert "Azul claro: recepción parcial; azul fuerte: " in block
-    assert " "Verde claro: " in block
+    assert "Verde claro: " in block
     assert "config={\"displayModeBar\":False,\"scrollZoom\":False," in block
     assert "\"doubleClick\":False,\"editable\":False" in block
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in app
