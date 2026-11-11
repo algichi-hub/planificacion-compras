@@ -19,6 +19,7 @@ CHILD_TABLES = (
     "core.sc_po_links",
     "core.reac_refs",
     "core.receipts",
+    "core.pr_approval_dates",
     "core.incidents",
     "raw.source_rows",
     "audit.import_issues",
@@ -39,6 +40,23 @@ def validate_request(snapshot_id, confirmation, state):
     if confirmation is not None and confirmation != snapshot_id:
         raise ValueError("--confirm must match --delete exactly")
     return confirmation == snapshot_id
+
+
+def validate_snapshot_dependencies(cur):
+    """Fail closed if a new FK-dependent table is missing from deletion plan."""
+    cur.execute("""
+        SELECT conrelid::regclass::text
+          FROM pg_constraint
+         WHERE contype='f'
+           AND confrelid='audit.snapshots'::regclass
+    """)
+    referenced = {row[0] for row in cur.fetchall()}
+    missing = referenced - set(CHILD_TABLES)
+    if missing:
+        raise ValueError(
+            "Snapshot deletion is missing foreign-key tables: "
+            + ", ".join(sorted(missing))
+        )
 
 
 def count_snapshot_rows(cur, snapshot_id):
@@ -80,6 +98,7 @@ def delete_snapshot(conn, snapshot_id, confirmation=None):
                 replacement=cur.fetchone()
             else:
                 replacement=None
+            validate_snapshot_dependencies(cur)
             counts = count_snapshot_rows(cur, snapshot_id)
             show_plan(snapshot_id, meta, counts)
             if is_latest:
