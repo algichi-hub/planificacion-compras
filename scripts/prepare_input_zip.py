@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pyzipper
 
+from src.import_history import log_event
+
 # Also support direct execution: python scripts/prepare_input_zip.py.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -103,7 +105,7 @@ def _check_csv(path, name):
         raise InputArchiveError(f"{name}: unexpected number of columns")
 
 
-def prepare_inputs(folder, password=None):
+def _prepare_inputs(folder, password=None):
     """Synchronize exactly four CSV files from encrypted ZIP.
 
     Returns True only when CSVs were updated. On unchanged ZIP, ensure the
@@ -193,6 +195,27 @@ def prepare_inputs(folder, password=None):
                         (folder / name).unlink(missing_ok=True)
                 raise InputArchiveError("Failed to replace CSVs: previous files restored") from exc
         return True
+
+def prepare_inputs(folder, password=None):
+    """Run ZIP preflight with durable, append-only operational logging."""
+    folder = Path(folder)
+    log_event(folder, "ZIP_CHECK_START", archive=ARCHIVE)
+    try:
+        changed = _prepare_inputs(folder, password=password)
+    except InputArchiveError as exc:
+        # Failure reasons never contain the password, connection URI, or file data.
+        log_event(folder, "ZIP_CHECK_ERROR", reason=str(exc).replace("\\n", " "))
+        raise
+    except Exception as exc:
+        log_event(folder, "ZIP_CHECK_ERROR", error_type=type(exc).__name__)
+        raise
+    log_event(
+        folder,
+        "ZIP_UPDATED" if changed else "ZIP_UNCHANGED",
+        csv_count=len(FILES),
+        archive_sha256=digest(folder / ARCHIVE),
+    )
+    return changed
 
 if __name__ == "__main__":
     import argparse
