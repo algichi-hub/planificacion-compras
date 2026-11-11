@@ -10,10 +10,14 @@ import os
 import shutil
 import tempfile
 import zipfile
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
 import pyzipper
+
+# Also support direct execution: python scripts/prepare_input_zip.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ARCHIVE = "planificacion-compras.zip"
 FILES = (
