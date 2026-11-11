@@ -17,6 +17,7 @@ from src.reconcile import parse_sc,parse_receipt,parse_incident,summarize_sc,sum
 from scripts.build_sc_workflow import classify
 from src.pr_approval_import import import_approval_dates
 from scripts.prepare_input_zip import prepare_inputs, InputArchiveError
+from src.import_history import log_event
 
 SOURCES={"SC_FAS.csv":"|","INC_FAS.csv":";","Recepciones_Sevilla.csv":";"}
 IMPORTER_REVISION="p2_receipt_decimal_dot_v1"
@@ -122,6 +123,7 @@ def run_import(args):
         changed=prepare_inputs(root)
     except InputArchiveError as exc:
         raise SystemExit(f"Input ZIP preflight failed: {exc}") from exc
+    log_event(root, "SNAPSHOT_START", snapshot_date=args.date, zip_updated=changed)
     print("ZIP input: " + ("four CSVs updated" if changed else "unchanged; verified CSVs reused"),
           flush=True)
     for name in SOURCES:
@@ -286,6 +288,9 @@ def run_import(args):
                         hashes["RecepcionesTotales.csv"])
                     print("Fourth-source PR reconciliation:",dict(approval_counts),flush=True)
                 print("[5/5] Finalizing transaction...",flush=True)
+        log_event(root, "SNAPSHOT_VALIDATED", snapshot_id=sid, snapshot_date=args.date,
+                  source_count=len(hashes), positions=classified_count,
+                  quality_issues=len(issue_rows))
         print("Validated snapshot",sid,"date",args.date)
         print("Source counts:",counts)
         print("Quality issues:",len(issue_rows))
@@ -300,6 +305,14 @@ if __name__=="__main__":
     ap.add_argument("--no-progress",action="store_true",help="Disable progress bars")
     args=ap.parse_args()
     if args.date:
-        run_import(args)
+        try:
+            run_import(args)
+        except BaseException as exc:
+            # Log a safe exception class, never a connection URL or secret.
+            # SystemExit from ZIP preflight already has its specific ZIP log.
+            if not isinstance(exc, KeyboardInterrupt):
+                log_event(args.input, "SNAPSHOT_FAILED",
+                          snapshot_date=args.date, error_type=type(exc).__name__)
+            raise
     else:
         ap.error("Provide --date")
