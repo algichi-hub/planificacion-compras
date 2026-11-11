@@ -95,3 +95,33 @@ La tarea requiere acceso a Neon y a los archivos locales. Un ZIP no modificado
   el ZIP y verificar la procedencia del fichero.
 - Para recuperar una extracción, conservar el ZIP correcto y ejecutar de nuevo
   el preflight; no eliminar manualmente snapshots validados.
+
+## Registro histórico de importaciones
+
+Las comprobaciones del gestor, tanto manuales como llamadas automáticamente
+por `import_snapshot.py`, quedan registradas en:
+
+```text
+logs/planificacion-compras.log
+```
+
+El fichero es **acumulativo**: cada ejecución añade líneas con fecha/hora
+local, zona horaria y resultado. Incluye `ZIP_CHECK_START`,
+`ZIP_UPDATED` (4 CSV sustituidos), `ZIP_UNCHANGED` (archivos íntegros),
+`ZIP_CHECK_ERROR`, `SNAPSHOT_START`, `SNAPSHOT_VALIDATED` (identificador,
+fecha, posiciones e incidencias) y `SNAPSHOT_FAILED`.
+
+No se escriben contraseñas, cadenas de conexión ni contenidos de CSV.
+El directorio `logs/` ya está excluido del repositorio por `.gitignore`.
+No hay borrado ni rotación automática; supervisar el tamaño periódicamente.
+
+En PowerShell, desde la raíz del proyecto:
+
+```powershell
+Get-Content .\\logs\\planificacion-compras.log -Tail 30
+Get-Content .\\logs\\planificacion-compras.log -Wait -Tail 10
+```
+
+El primer comando muestra las últimas 30 líneas y el segundo las sigue
+en directo. El log del gestor confirma **solo la preparación de entrada**;
+no certifica la conciliación ni sustituye las tablas de auditoría Neon.
