@@ -16,6 +16,7 @@ from src.normalize import iter_source,decimal_es,date_es,is_real_po,indexed
 from src.reconcile import parse_sc,parse_receipt,parse_incident,summarize_sc,summarize_po
 from scripts.build_sc_workflow import classify
 from src.pr_approval_import import import_approval_dates
+from scripts.prepare_input_zip import prepare_inputs, InputArchiveError
 
 SOURCES={"SC_FAS.csv":"|","INC_FAS.csv":";","Recepciones_Sevilla.csv":";"}
 IMPORTER_REVISION="p2_receipt_decimal_dot_v1"
@@ -115,6 +116,14 @@ def finalize_import(db, cur, snapshot_id):
 
 def run_import(args):
     root=Path(args.input)
+    # Preflight is independent from Neon; abort before any snapshot write if
+    # the encrypted ZIP is missing, incomplete or has the wrong password.
+    try:
+        changed=prepare_inputs(root)
+    except InputArchiveError as exc:
+        raise SystemExit(f"Input ZIP preflight failed: {exc}") from exc
+    print("ZIP input: " + ("four CSVs updated" if changed else "unchanged; verified CSVs reused"),
+          flush=True)
     for name in SOURCES:
         if not (root/name).is_file():
             raise SystemExit(f"Required input missing: {root/name}")
