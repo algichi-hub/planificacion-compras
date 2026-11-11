@@ -58,7 +58,7 @@ def test_migration_keeps_user_lists_separate_from_erp():
 
 def test_fixed_my_sc_dashboard_and_existing_editor_are_kept():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert '["Resumen","Seguimiento SC","Mis SC","Manage SC","Manage PR"]' in app
+    assert '["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR"]' in app
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     manage=app.split("with tab4:",1)[1].split("with tab5:",1)[0]
     assert 'group_id=MY_SC_GROUP_ID' in group
