@@ -324,13 +324,13 @@ def test_shared_renderer_and_locked_plotly_config():
     block=app.split("def render_planning_timeline(",1)[1].split(
         "def render_sc_detail(",1
     )[0]
-    assert "ampliación del plan (rosa pastel)" in block
-    assert "Azul claro: PR parcial; azul oscuro: recepción ERP " in block
-    assert "Morado claro: entrega física parcial; morado oscuro: " in block
+    assert "ampliación del plan" in block
+    assert "Azul claro: recepción parcial; azul fuerte: " in block
+    assert " "Verde claro: " in block
     assert "config={\"displayModeBar\":False,\"scrollZoom\":False," in block
     assert "\"doubleClick\":False,\"editable\":False" in block
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in app
-    assert app.count('render_planning_timeline(')==2  # function + Seguimiento SC
+    assert app.count('render_planning_timeline(')==3  # function + two lazy views
     assert app.count('on_select="rerun",selection_mode="single-row"')==3
     assert app.count('render_sc_detail(line, sid, context=')==2
     assert "hand_deliveries.clear()" in app
