@@ -213,7 +213,6 @@ def prepare_inputs(folder, password=None):
         folder,
         "ZIP_UPDATED" if changed else "ZIP_UNCHANGED",
         csv_count=len(FILES),
-        archive_sha256=digest(folder / ARCHIVE),
     )
     return changed
 
