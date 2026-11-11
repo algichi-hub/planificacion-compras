@@ -26,6 +26,7 @@ from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize
                                     normalize_delivery_date, normalize_nbi, duplicate_warning)
 from src.pr_batch_import import parse_pr_batch, batch_digest, batch_warnings, insert_pr_batch
 from src.pr_traceability import PR_RELATIONS_SQL, resolve_pr_relations
+from src.pr_lookup import PR_LOOKUP_SQL, resolve_pr
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -148,7 +149,7 @@ if project!="Todos":
     where+=" AND project=%s"
     params.append(project)
 
-tab1,tab2,tab3,tab4,tab5=st.tabs(["Resumen","Seguimiento SC","Mis SC","Manage SC","Manage PR"])
+tab1,tab2,tab6,tab3,tab4,tab5=st.tabs(["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR"])
 has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
 workflow_ready=False
 if has_workflow_table:
@@ -1221,3 +1222,32 @@ with tab5:
                                                    format_quantity(item["quantity"]),
                                                    item["delivery_date"].strftime("%d/%m/%Y"))
         render_hand_deliveries()
+
+
+# Exact inverse lookup reuses the verified SC detail; no PR reads by default.
+with tab6:
+    st.subheader("Seguimiento PR")
+    with st.form("pr_lookup_form"):
+        pr_input=st.text_input("Número exacto de PR",key="pr_lookup_input")
+        submitted=st.form_submit_button("Consultar PR")
+    if submitted:
+        pr_number=pr_input.strip()
+        st.session_state["pr_lookup_selected"]=(
+            (sid,pr_number) if pr_number.isascii() and pr_number.isdigit()
+            and 0 < len(pr_number) <= 30 else None
+        )
+        if st.session_state["pr_lookup_selected"] is None:
+            st.warning("Introduce un número de PR válido.")
+    selected=st.session_state.get("pr_lookup_selected")
+    if selected and selected[0]==sid:
+        pr_number=selected[1]
+        matches=query(PR_LOOKUP_SQL,(sid,pr_number))
+        line,issue=resolve_pr(matches.to_dict("records"))
+        if issue:
+            st.warning(issue)
+        else:
+            st.caption(f"PR {pr_number} · Pedido/Pos {line['po_no']}/{line['po_pos']} "
+                       f"· SC {line['sc_no']}/{line['sc_pos']}")
+            render_sc_detail(line,sid,context="pr")
+    elif not submitted:
+        st.caption("Introduce un PR y pulsa Consultar PR para ver su Detalle SC.")
