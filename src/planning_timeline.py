@@ -13,16 +13,18 @@ import plotly.graph_objects as go
 
 from src.normalize import date_es
 
-SC_ORDER = "#DC2626"
-ORDER_ORIGINAL = "#F59E0B"
-REPLAN = "#F9A8D4"  # Pink pastel: planned-date extension
-RECEIPT_WAIT = "#CBD5E1"
-PARTIAL_PR = "#93C5FD"  # Light blue: partial ERP receipt
-COMPLETE_PR = "#1D4ED8"  # Dark blue: full ERP receipt
-APPROVAL_PR = "#FFFF00"  # Pure yellow: dated PR approval from fourth CSV
-PARTIAL_HANDOVER = "#C4B5FD"  # Light purple: partial physical handover
-COMPLETE_HANDOVER = "#6D28D9"  # Dark purple: verified full physical handover
-TODAY_LINE = "#475569"
+from src.timeline_colors import DEFAULT_COLORS
+
+SC_ORDER = DEFAULT_COLORS["sc_order"]
+ORDER_ORIGINAL = DEFAULT_COLORS["order_original"]
+REPLAN = DEFAULT_COLORS["replan"]
+RECEIPT_WAIT = DEFAULT_COLORS["receipt_wait"]
+PARTIAL_PR = DEFAULT_COLORS["partial_pr"]
+COMPLETE_PR = DEFAULT_COLORS["complete_pr"]
+APPROVAL_PR = DEFAULT_COLORS["approval_pr"]
+PARTIAL_HANDOVER = DEFAULT_COLORS["partial_handover"]
+COMPLETE_HANDOVER = DEFAULT_COLORS["complete_handover"]
+TODAY_LINE = DEFAULT_COLORS["today_line"]
 MISSING = "#64748B"
 
 # Retained public aliases; no other chart's styling is changed.
