@@ -151,7 +151,7 @@ def test_pr_sql_migration_not_snapshotted_and_minimal_grants():
 
 def test_manage_sc_and_manage_pr_tabs_and_compact_grid():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert 'tab1,tab2,tab3,tab4,tab5=st.tabs([' in app
+    assert 'tab1,tab2,tab6,tab3,tab4,tab5=st.tabs([' in app
     assert '"Manage SC","Manage PR"' in app
     assert 'with tab4:\n    st.subheader("Manage SC")' in app
     pr=app.split("with tab5:",1)[1]
