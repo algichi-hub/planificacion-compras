@@ -60,7 +60,7 @@ def test_group_selection_filters_only_target_sc_and_keeps_missing_references():
 def test_ui_two_widget_keys_are_independent_and_detail_is_child_only():
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert '["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR"]' in app
+    assert '["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR","Snapshots"]' in app
     assert 'st.subheader("Mis SC")' in group
     assert 'st.button("Resumen"' not in group
     assert 'if not stats_ready:' in group
