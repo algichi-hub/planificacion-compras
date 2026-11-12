@@ -187,3 +187,51 @@ def test_confirmed_batch_rechecks_preview_and_audits_every_snapshot():
             with pytest.raises(RuntimeError,match="rollback"):
                 delete_selected("postgres://x",user,"admin@example.com",(8,13),token)
     assert changed.rolled_back and not changed.completed
+
+
+def test_preview_uses_admin_connection_and_read_only_transaction():
+    from contextlib import contextmanager
+    from src.snapshot_admin import preview_selected
+    class Cursor:
+        def __init__(self): self.queries=[]
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        def execute(self,sql): self.queries.append(sql)
+    class Connection:
+        def __init__(self): self.cur=Cursor()
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        @contextmanager
+        def transaction(self):
+            yield self
+        def cursor(self): return self.cur
+    conn=Connection()
+    admin={"is_logged_in":True,"email_verified":True,"email":"admin@example.com"}
+    plan=({"remaining_id":11}, "abc")
+    with patch("src.snapshot_admin.psycopg.connect",return_value=conn) as connect:
+        with patch("src.snapshot_admin.deletion_plan",return_value=plan) as resolver:
+            assert preview_selected("postgres://admin",admin,"admin@example.com",(13,))==plan
+    connect.assert_called_once_with("postgres://admin",connect_timeout=15)
+    resolver.assert_called_once_with(conn.cur,(13,))
+    assert conn.cur.queries[0]=="SET TRANSACTION READ ONLY"
+    assert not any("DELETE " in q or "INSERT " in q for q in conn.cur.queries)
+
+
+def test_preview_fails_closed_without_admin_or_management_secret():
+    from src.snapshot_admin import preview_selected
+    admin={"is_logged_in":True,"email_verified":True,"email":"admin@example.com"}
+    with patch("src.snapshot_admin.psycopg.connect") as connect:
+        with pytest.raises(PermissionError):
+            preview_selected("postgres://admin",{},"admin@example.com",(1,))
+        with pytest.raises(PermissionError,match="SNAPSHOT_ADMIN_DATABASE_URL"):
+            preview_selected(None,admin,"admin@example.com",(1,))
+        connect.assert_not_called()
+
+
+def test_app_snapshot_simulation_never_uses_readonly_dashboard_connection():
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    assert "preview_selected, delete_selected" in app
+    assert "plan,token = preview_selected(" in app
+    assert "snap_writer,snap_identity,snap_emails,chosen" in app
+    assert "psycopg.connect(connection_string(),connect_timeout=15) as conn:" not in app.split(
+        'if st.button("Simular eliminación"',1)[1].split("preflight =",1)[0]
