@@ -1263,9 +1263,15 @@ if tab7.open:
         try:
             snap_auth = bool(st.secrets.get("auth"))
             snap_emails = str(st.secrets.get("BULK_ADMIN_EMAILS", ""))
-            snap_writer = st.secrets.get("SNAPSHOT_ADMIN_DATABASE_URL")
+            snap_writer = (st.secrets.get("SNAPSHOT_ADMIN_DATABASE_URL")
+                           or os.environ.get("SNAPSHOT_ADMIN_DATABASE_URL"))
+            misplaced_snap_secret = (not snap_writer and
+                any("SNAPSHOT_ADMIN_DATABASE_URL" in section
+                    for section in (st.secrets.get("auth", {}),)
+                    if hasattr(section, "__contains__")))
         except (KeyError, FileNotFoundError):
             snap_auth, snap_emails, snap_writer = False, "", None
+            misplaced_snap_secret = False
         snap_identity = st.user.to_dict() if snap_auth else {}
         snap_authorized = is_bulk_admin(snap_identity, snap_emails)
         if snap_auth and not snap_identity.get("is_logged_in"):
@@ -1347,7 +1353,16 @@ if tab7.open:
                         st.markdown("**Incidencias de importación**")
                         st.dataframe(issues,hide_index=True,use_container_width=True)
 
-                if st.button("Simular eliminación",disabled=not chosen,key="snapshot_admin_preflight"):
+                if not snap_writer:
+                    st.warning(
+                        "SNAPSHOT_ADMIN_DATABASE_URL no está disponible en los secretos "
+                        "de nivel superior del despliegue. "
+                        + ("Se ha encontrado dentro de [auth]; muévelo antes de [auth] "
+                           "y guarda los secretos." if misplaced_snap_secret else
+                           "Comprueba Secrets en la app desplegada, guarda y reinicia "
+                           "la aplicación. No introduzcas credenciales en la interfaz.")
+                    )
+                if st.button("Simular eliminación",disabled=not chosen or not snap_writer,key="snapshot_admin_preflight"):
                     try:
                         plan,token = preview_selected(
                             snap_writer,snap_identity,snap_emails,chosen
