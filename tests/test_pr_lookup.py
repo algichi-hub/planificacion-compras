@@ -69,4 +69,4 @@ def test_pr_tab_form_is_strictly_lazy_and_detail_is_shared():
     assert 'pr_number.isascii() and pr_number.isdigit()' in pr
     assert 'render_sc_detail(line,sid,context="pr")' in pr
     assert app.count("def render_sc_detail(")==1
-    assert 'tab1,tab2,tab6,tab3,tab4,tab5=st.tabs(' in app
+    assert 'tab1,tab2,tab6,tab3,tab4,tab5,tab7=st.tabs(' in app
