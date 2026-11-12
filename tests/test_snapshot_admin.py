@@ -281,3 +281,15 @@ def test_missing_po_fk_index_aborts_without_any_deletion():
     assert conn.aborted
     assert not any(q.startswith("DELETE FROM") for q in conn.queries)
     assert not any("INSERT INTO audit.snapshot_deletions" in q for q in conn.queries)
+
+
+def test_snapshot_inventory_omits_unwanted_main_table_counts():
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    display=app.split('display = pd.DataFrame({',1)[-1].split('})',1)[0]
+    for key in ('"SC":', '"Pos. SC":', '"Pos. PO":', '"PR":'):
+        assert key not in display
+    for subquery in ("AS sc,", "AS sc_positions,", "AS po_positions,",
+                     "AS links,", "AS receptions,"):
+        assert subquery not in INVENTORY_SQL
+    assert '"Aprobaciones": history["approvals"]' in display
+    assert '"Incidencias": history["incidents"]' in display
