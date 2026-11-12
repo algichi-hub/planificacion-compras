@@ -353,7 +353,7 @@ if __name__=="__main__":
         run_import(args)
     except BaseException as exc:
         if not isinstance(exc, KeyboardInterrupt):
-            log_event(args.input,"SNAPSHOT_FAILED",
+            log_event(args.input, "SNAPSHOT_FAILED",
                       snapshot_date=args.date or "ZIP",
                       error_type=type(exc).__name__)
         raise
