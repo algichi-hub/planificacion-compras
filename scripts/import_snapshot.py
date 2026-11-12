@@ -80,15 +80,15 @@ def resolve_import_dates(args, archive, today=None):
     return snapshot_date,cutoff
 
 
-def matching_validated_snapshot(conn, hashes):
+def matching_validated_snapshot(conn, hashes, cutoff):
     """Read only the latest validated snapshot; never trust staging as imported."""
     with conn.cursor() as cur:
-        cur.execute("""SELECT id,source_hashes,importer_revision
+        cur.execute("""SELECT id,source_hashes,importer_revision,sc_approved_from
                        FROM audit.snapshots WHERE state='validated'
-                       ORDER BY snapshot_date DESC NULLS LAST,id DESC LIMIT 1""")
+                       ORDER BY id DESC LIMIT 1""")
         last=cur.fetchone()
     return (last[0] if last and last[1]==hashes
-            and last[2]==IMPORTER_REVISION else None)
+            and last[2]==IMPORTER_REVISION and last[3]==cutoff else None)
 
 
 def approved_sc_selection(path, cutoff):
@@ -169,7 +169,7 @@ def run_import(args):
     if not connstr:
         raise SystemExit("Set DATABASE_URL outside the repository")
     with psycopg.connect(connstr) as db:
-        previous=matching_validated_snapshot(db,hashes)
+        previous=matching_validated_snapshot(db,hashes,cutoff)
     if previous is not None:
         log_event(root,"SNAPSHOT_SKIPPED",reason="unchanged_sources",
                   previous_snapshot=previous,snapshot_date=snapshot_date)
