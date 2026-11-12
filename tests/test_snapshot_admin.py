@@ -293,3 +293,12 @@ def test_snapshot_inventory_omits_unwanted_main_table_counts():
         assert subquery not in INVENTORY_SQL
     assert '"Aprobaciones": history["approvals"]' in display
     assert '"Incidencias": history["incidents"]' in display
+
+
+def test_inventory_and_deletion_fallback_use_newest_validated_id():
+    from src.snapshot_admin import INVENTORY_SQL
+    from scripts import manage_snapshots
+    import inspect
+    assert "ORDER BY s.id DESC" in INVENTORY_SQL
+    assert "ORDER BY id DESC LIMIT 1" in inspect.getsource(manage_snapshots.delete_snapshot)
+    assert "ORDER BY id DESC LIMIT 1" in inspect.getsource(__import__("src.snapshot_admin",fromlist=["deletion_plan"]).deletion_plan)
