@@ -1391,8 +1391,10 @@ if tab7.open:
                             st.write(f"Filas a eliminar: {plan['total_rows']}")
                             st.write(f"Nuevo vigente: #{plan['remaining_id']}")
                             phrase = st.text_input("Escribe ELIMINAR para confirmar",key="snapshot_delete_phrase")
-                            if st.button("Eliminar definitivamente",type="primary",
-                                         disabled=phrase!="ELIMINAR",key="snapshot_delete_confirm"):
+                            confirm_button = st.empty()
+                            if confirm_button.button("Eliminar definitivamente",type="primary",
+                                                     disabled=phrase!="ELIMINAR",key="snapshot_delete_confirm"):
+                                confirm_button.button("Eliminando...",disabled=True,key="snapshot_delete_running")
                                 try:
                                     result = delete_selected(
                                         snap_writer,snap_identity,snap_emails,
