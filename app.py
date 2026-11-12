@@ -1298,19 +1298,14 @@ if tab7.open:
             if history.empty:
                 st.info("No hay snapshots.")
             else:
-                valid = history.loc[history["state"] == "validated"]
-                active_id = int(valid.iloc[0]["id"]) if not valid.empty else None
                 display = pd.DataFrame({
                     "Eliminar": False,
                     "ID": history["id"].astype(int),
-                    "Vigente": history["id"].astype(int).eq(active_id),
                     "Estado": history["state"],
                     "Revisión": history["importer_revision"],
                     "Desde": history["sc_approved_from"],
                     "Fecha": history["snapshot_date"],
                     "Importado": history["created_at"],
-                    "Aprobaciones": history["approvals"].astype(int),
-                    "Incidencias": history["incidents"].astype(int),
                     "CSV": history["files"].astype(int),
                     "Avisos": history["warnings"].astype(int),
                     "Errores": history["errors"].astype(int),
@@ -1322,7 +1317,6 @@ if tab7.open:
                     disabled=[col for col in display.columns if col != "Eliminar"],
                     column_config={
                         "Eliminar": st.column_config.CheckboxColumn("Eliminar"),
-                        "Vigente": st.column_config.CheckboxColumn("Vigente",disabled=True),
                         "Desde": st.column_config.DateColumn("Desde",format="DD/MM/YYYY"),
                         "Fecha": st.column_config.DateColumn("Fecha",format="DD/MM/YYYY"),
                         "Importado": st.column_config.DatetimeColumn("Importado",format="DD/MM/YYYY HH:mm"),
