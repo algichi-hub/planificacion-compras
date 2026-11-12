@@ -127,6 +127,16 @@ def delete_selected(admin_dsn, user, allowed_emails, ids, expected_token):
                 plan,token = deletion_plan(cur,ids)
                 if token!=expected_token:
                     raise ValueError("Los datos han cambiado: repite la simulación.")
+                # PostgreSQL checks the PO foreign key for every deleted PO row.
+                # Without its exact-prefix index, legacy snapshots can time out.
+                cur.execute(
+                    "SELECT to_regclass('core.ix_sc_po_links_by_po_fk') IS NOT NULL"
+                )
+                if not cur.fetchone()[0]:
+                    raise RuntimeError(
+                        "Falta el índice ix_sc_po_links_by_po_fk. "
+                        "Aplica la migración 019 antes de eliminar snapshots."
+                    )
                 for row in plan["snapshots"]:
                     cur.execute(
                         "INSERT INTO audit.snapshot_deletions "
