@@ -9,7 +9,7 @@ ELIGIBLE_STATES = frozenset(("validated",))
 
 
 def latest_snapshot_id(snapshots: pd.DataFrame) -> int:
-    """Latest validated snapshot_date wins; ID breaks ties."""
+    """Newest validated ID wins, regardless of source ZIP date."""
     required={"id","snapshot_date","state"}
     if snapshots is None or not required.issubset(snapshots.columns):
         raise ValueError("Faltan columnas de selección de snapshots.")
@@ -21,5 +21,5 @@ def latest_snapshot_id(snapshots: pd.DataFrame) -> int:
     valid=valid.dropna(subset=["snapshot_date","id"])
     if valid.empty:
         raise ValueError("No existe ningún snapshot validado con fecha.")
-    newest=valid.sort_values(["snapshot_date","id"],ascending=[False,False])
+    newest=valid.sort_values("id",ascending=False)
     return int(newest.iloc[0]["id"])
