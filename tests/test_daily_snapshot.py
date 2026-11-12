@@ -93,3 +93,29 @@ def test_skip_gate_before_any_snapshot_insert_or_csv_parsing():
     assert fn.index("return None") < fn.index("INSERT INTO audit.snapshots")
     assert "SNAPSHOT_SKIPPED" in fn
     assert "SNAPSHOT_VALIDATED" in fn
+
+
+def test_identical_sources_skip_before_writes_or_csv_scan(tmp_path,monkeypatch):
+    from scripts import import_snapshot as mod
+    archive=tmp_path/"planificacion-compras.zip"
+    archive.write_bytes(b"encrypted")
+    for name in (*mod.SOURCES,"RecepcionesTotales.csv"):
+        (tmp_path/name).write_bytes(name.encode())
+    monkeypatch.setattr(mod,"prepare_inputs",lambda folder:False)
+    monkeypatch.setattr(mod,"sha256",lambda path:str(path.name))
+    monkeypatch.setenv("DATABASE_URL","fake")
+    events=[]
+    monkeypatch.setattr(mod,"log_event",lambda *args,**kwargs:events.append((args,kwargs)))
+    snapshot_hashes={name:name for name in (*mod.SOURCES,"RecepcionesTotales.csv")}
+    from scripts.import_snapshot import IMPORTER_REVISION
+    class Connection(FakeConn):
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+    conn=Connection((13,snapshot_hashes,IMPORTER_REVISION))
+    monkeypatch.setattr(mod.psycopg,"connect",lambda dsn:conn)
+    monkeypatch.setattr(mod,"approved_sc_selection",
+                        lambda *args:pytest.fail("CSV should not be parsed"))
+    args=SimpleNamespace(date=None,from_date=None,period=365,input=str(tmp_path))
+    assert mod.run_import(args) is None
+    assert len(conn.cursor_obj.calls)==1
+    assert any(a[1]=="SNAPSHOT_SKIPPED" for a,k in events)
