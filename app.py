@@ -1064,51 +1064,51 @@ with tab5:
                         st.session_state["pr_grid_revision"]=st.session_state.get("pr_grid_revision",0)+1
                         st.rerun()
 
-            st.markdown("**Registro unitario de PR**")
-            with st.form("pr_add_delivery",clear_on_submit=True):
-                a,b,c,d=st.columns([2,1,2,2],gap="small")
-                with a:
-                    entered_pr=st.text_input("PR",placeholder="Número de parte")
-                with b:
-                    entered_qty=st.text_input("Qty",placeholder="0,00")
-                with c:
-                    entered_date=st.date_input("Fecha entrega",value=today,
-                                               format="DD/MM/YYYY",max_value=today)
-                with d:
-                    entered_nbi=st.text_input("Recibido por NBI",placeholder="NBI",max_chars=40)
-                submitted=st.form_submit_button("Añadir entrega",icon=":material/add:")
-            if submitted:
-                try:
-                    pr=normalize_pr(entered_pr)
-                    qty=normalize_quantity(entered_qty)
-                    day=normalize_delivery_date(entered_date,today=today)
-                    nbi=normalize_nbi(entered_nbi)
-                    warnings=[]
-                    if duplicate_warning(ledger.to_dict("records"),pr,qty,day,today=today):
-                        warnings.append("Ya existe una entrega activa con el mismo PR, Qty y fecha. Comprueba que no es un duplicado.")
-                    # Snapshot-specific cross-check is advisory only; manual history
-                    # must survive later imports and unknown ERP PRs.
-                    erp=query("""SELECT count(*) AS n,
-                                        sum(delivered_qty) AS received_qty,
-                                        sum(approved_qty) AS approved_qty
-                                 FROM core.receipts
-                                 WHERE snapshot_id=%s AND receipt_no=%s""",(sid,pr))
-                    if not erp.empty:
-                        evidence=erp.iloc[0]
-                        if int(evidence["n"])==0:
-                            warnings.append("PR no encontrado en el snapshot seleccionado. Se registrará pendiente de conciliación.")
-                        elif int(evidence["n"])>1:
-                            warnings.append("PR con varios movimientos ERP; revisar antes de comparar cantidades.")
-                        else:
-                            from decimal import Decimal
-                            registered=sum((Decimal(str(x["quantity"])) for x in ledger.to_dict("records")
-                                            if str(x["pr_no"])==pr),Decimal("0"))
-                            approved=evidence["approved_qty"]
-                            if approved is not None and not pd.isna(approved) and registered+qty>approved:
-                                warnings.append("La cantidad acumulada entregada en mano supera la cantidad aprobada ERP del snapshot. Verifica el PR.")
-                    confirm_hand_delivery(pr,qty,day,nbi,warnings)
-                except ValueError as exc:
-                    st.error(str(exc))
+            with st.expander("Registro unitario de PR",expanded=False):
+                with st.form("pr_add_delivery",clear_on_submit=True):
+                    a,b,c,d=st.columns([2,1,2,2],gap="small")
+                    with a:
+                        entered_pr=st.text_input("PR",placeholder="Número de parte")
+                    with b:
+                        entered_qty=st.text_input("Qty",placeholder="0,00")
+                    with c:
+                        entered_date=st.date_input("Fecha entrega",value=today,
+                                                   format="DD/MM/YYYY",max_value=today)
+                    with d:
+                        entered_nbi=st.text_input("Recibido por NBI",placeholder="NBI",max_chars=40)
+                    submitted=st.form_submit_button("Añadir entrega",icon=":material/add:")
+                if submitted:
+                    try:
+                        pr=normalize_pr(entered_pr)
+                        qty=normalize_quantity(entered_qty)
+                        day=normalize_delivery_date(entered_date,today=today)
+                        nbi=normalize_nbi(entered_nbi)
+                        warnings=[]
+                        if duplicate_warning(ledger.to_dict("records"),pr,qty,day,today=today):
+                            warnings.append("Ya existe una entrega activa con el mismo PR, Qty y fecha. Comprueba que no es un duplicado.")
+                        # Snapshot-specific cross-check is advisory only; manual history
+                        # must survive later imports and unknown ERP PRs.
+                        erp=query("""SELECT count(*) AS n,
+                                            sum(delivered_qty) AS received_qty,
+                                            sum(approved_qty) AS approved_qty
+                                     FROM core.receipts
+                                     WHERE snapshot_id=%s AND receipt_no=%s""",(sid,pr))
+                        if not erp.empty:
+                            evidence=erp.iloc[0]
+                            if int(evidence["n"])==0:
+                                warnings.append("PR no encontrado en el snapshot seleccionado. Se registrará pendiente de conciliación.")
+                            elif int(evidence["n"])>1:
+                                warnings.append("PR con varios movimientos ERP; revisar antes de comparar cantidades.")
+                            else:
+                                from decimal import Decimal
+                                registered=sum((Decimal(str(x["quantity"])) for x in ledger.to_dict("records")
+                                                if str(x["pr_no"])==pr),Decimal("0"))
+                                approved=evidence["approved_qty"]
+                                if approved is not None and not pd.isna(approved) and registered+qty>approved:
+                                    warnings.append("La cantidad acumulada entregada en mano supera la cantidad aprobada ERP del snapshot. Verifica el PR.")
+                        confirm_hand_delivery(pr,qty,day,nbi,warnings)
+                    except ValueError as exc:
+                        st.error(str(exc))
             st.markdown("**Entregas reales registradas**")
             if ledger.empty:
                 st.caption("Sin entregas físicas registradas.")
@@ -1169,7 +1169,13 @@ with tab5:
                                       "textAlign":"center","cursor":"pointer",
                                       "paddingLeft":"0","paddingRight":"0"}},
                         {"field":"pr_no","headerName":"PR","minWidth":110,"flex":2},
-                        {"field":"quantity","headerName":"Qty","minWidth":90,"flex":1},
+                        {"field":"quantity","headerName":"Qty","minWidth":90,"flex":1,
+                         "comparator":JsCode("""
+                             function(a,b) {
+                                 return Number(String(a).replace(',', '.'))-
+                                        Number(String(b).replace(',', '.'));
+                             }
+                         """)},
                         {"field":"Description","headerName":"Description","minWidth":280,"flex":4,
                          "tooltipField":"Description"},
                         {"field":"Proyecto","headerName":"Proyecto","minWidth":110,"flex":1},
@@ -1194,7 +1200,7 @@ with tab5:
                         {"field":"Observaciones","headerName":"Observaciones","minWidth":260,"flex":3,
                          "tooltipField":"Observaciones"},
                     ],
-                    "defaultColDef":{"editable":False,"filter":False,"sortable":False,
+                    "defaultColDef":{"editable":False,"filter":False,"sortable":True,
                                      "resizable":True},
                     "rowHeight":32,"headerHeight":32,
                     "getRowId":JsCode("function(p){return String(p.data.id);}"),
