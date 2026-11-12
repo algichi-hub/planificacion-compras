@@ -1299,6 +1299,7 @@ if tab7.open:
                     "ID": history["id"].astype(int),
                     "Vigente": history["id"].astype(int).eq(active_id),
                     "Estado": history["state"],
+                    "Revisión": history["importer_revision"],
                     "Desde": history["sc_approved_from"],
                     "Fecha": history["snapshot_date"],
                     "Importado": history["created_at"],
@@ -1324,7 +1325,7 @@ if tab7.open:
                         "Fecha": st.column_config.DateColumn("Fecha",format="DD/MM/YYYY"),
                         "Importado": st.column_config.DatetimeColumn("Importado",format="DD/MM/YYYY HH:mm"),
                     },
-                    key="snapshot_admin_selection",
+                    key=f"snapshot_admin_selection_{hash(tuple(history['id'].astype(int)))}",
                 )
                 chosen = tuple(sorted(int(x) for x in editor.loc[editor["Eliminar"],"ID"].tolist()))
                 st.caption(f"{len(chosen)} snapshots seleccionados. El vigente puede eliminarse "
