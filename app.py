@@ -908,7 +908,6 @@ with tab4:
 
 with tab5:
     st.subheader("Manage PR")
-    st.caption("Entrega física en mano. Registro manual independiente del almacén y de las recepciones ERP.")
     try:
         pr_auth_configured=bool(st.secrets.get("auth"))
         pr_admin_emails=str(st.secrets.get("BULK_ADMIN_EMAILS",""))
@@ -985,7 +984,6 @@ with tab5:
             st.markdown("**Importación múltiple de PR**")
             if st.session_state.pop("pr_batch_clear_input",False):
                 st.session_state["pr_batch_input"]=""
-            st.caption("Pega grupos PR;Qty;DD/MM/AAAA;NBI separados por punto y coma (máximo 300 caracteres).")
             bulk_text=st.text_area(
                 "Lista de entregas",
                 placeholder="769071;3;06/11/2026;8579;769072;20;06/11/2026;8579",
