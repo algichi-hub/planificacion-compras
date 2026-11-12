@@ -89,6 +89,22 @@ def deletion_plan(cur, ids):
     return result,token
 
 
+
+def preview_selected(admin_dsn, user, allowed_emails, ids):
+    """Read-only simulation using the restricted snapshot-management role."""
+    if not is_bulk_admin(user, allowed_emails):
+        raise PermissionError("Administrador autenticado y verificado requerido.")
+    if not admin_dsn:
+        raise PermissionError("Configura SNAPSHOT_ADMIN_DATABASE_URL para simular borrados.")
+    ids = snapshot_ids(ids)
+    with psycopg.connect(admin_dsn, connect_timeout=15) as conn:
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute("SET TRANSACTION READ ONLY")
+                cur.execute("SET LOCAL statement_timeout = '120s'")
+                return deletion_plan(cur, ids)
+
+
 def delete_selected(admin_dsn, user, allowed_emails, ids, expected_token):
     """All-or-nothing deletion; fail closed on stale preview or concurrent writes."""
     if not is_bulk_admin(user,allowed_emails):
