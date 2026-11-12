@@ -162,3 +162,16 @@ def test_retry_does_not_write_any_delivery(monkeypatch):
     assert result == {"inserted": False, "count": 2, "batch_id": 41}
     cursor.executemany.assert_not_called()
     conn.transaction.assert_called_once()
+
+
+def test_manage_pr_batch_is_first_always_visible_and_limited_to_300_characters():
+    from pathlib import Path
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    section=app.split("def render_hand_deliveries():",1)[1].split('st.markdown("**Entregas reales registradas**")',1)[0]
+    assert 'st.markdown("**Importación múltiple de PR**")' in section
+    assert 'with st.expander("Importación múltiple de PR"' not in section
+    assert section.index('st.markdown("**Importación múltiple de PR**")') < section.index('with st.form("pr_add_delivery"')
+    assert 'height=110,max_chars=300,key="pr_batch_input"' in section
+    assert 'st.markdown("**Registro unitario de PR**")' in section
+    assert 'st.button("Confirmar e importar lote"' in section
+    assert 'st.form_submit_button("Añadir entrega"' in section
