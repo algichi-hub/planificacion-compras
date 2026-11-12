@@ -117,3 +117,73 @@ def test_batch_deletion_explicit_atomic_transaction_and_audit():
     assert "cur.rowcount!=row[\"counts\"][table]" in code
     assert "deleted_by" in code
     assert "st." not in code
+
+
+def test_confirmed_batch_rechecks_preview_and_audits_every_snapshot():
+    from contextlib import contextmanager
+    import hashlib
+
+    class FakeConn:
+        def __init__(self, wrong_count=False):
+            self.actions=[]
+            self.wrong_count=wrong_count
+            self.completed=False
+            self.rolled_back=False
+            self.rowcount=1
+
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        @contextmanager
+        def transaction(self):
+            try:
+                yield self
+            except Exception:
+                self.rolled_back=True
+                raise
+            else:
+                self.completed=True
+        def cursor(self): return self
+        def execute(self,sql,params=None):
+            self.actions.append((sql,params))
+            if sql.startswith("DELETE FROM"):
+                self.rowcount=0 if self.wrong_count else 1
+            else:
+                self.rowcount=1
+        def fetchall(self): return [(8,),(13,)]
+
+    plan = {"snapshots":[
+        {"id":8,"date":"2026-11-06","revision":"v1","hashes":{},
+         "counts":{table:1 for table in (
+             __import__("scripts.manage_snapshots",fromlist=["TABLES"]).TABLES)}},
+        {"id":13,"date":"2026-11-11","revision":"v1","hashes":{},
+         "counts":{table:1 for table in (
+             __import__("scripts.manage_snapshots",fromlist=["TABLES"]).TABLES)}},
+    ],"remaining_id":11}
+    token=hashlib.sha256(b"plan").hexdigest()
+    user={"is_logged_in":True,"email_verified":True,"email":"Admin@Example.com"}
+
+    conn=FakeConn()
+    with patch("src.snapshot_admin.psycopg.connect",return_value=conn):
+        with patch("src.snapshot_admin.deletion_plan",return_value=(plan,token)):
+            output=delete_selected("postgres://x",user,"admin@example.com",(8,13),token)
+    assert output["remaining_id"]==11
+    assert conn.completed and not conn.rolled_back
+    assert len([a for a in conn.actions if "INSERT INTO audit.snapshot_deletions" in a[0]])==2
+    assert len([a for a in conn.actions if a[0].startswith("DELETE FROM audit.snapshots")])==2
+    assert all(a[1][-1]=="admin@example.com" for a in conn.actions
+               if "INSERT INTO audit.snapshot_deletions" in a[0])
+
+    stale=FakeConn()
+    with patch("src.snapshot_admin.psycopg.connect",return_value=stale):
+        with patch("src.snapshot_admin.deletion_plan",return_value=(plan,"1"*64)):
+            with pytest.raises(ValueError,match="repite la simulación"):
+                delete_selected("postgres://x",user,"admin@example.com",(8,13),token)
+    assert stale.rolled_back and not stale.completed
+    assert not any(a[0].startswith("DELETE FROM") for a in stale.actions)
+
+    changed=FakeConn(wrong_count=True)
+    with patch("src.snapshot_admin.psycopg.connect",return_value=changed):
+        with patch("src.snapshot_admin.deletion_plan",return_value=(plan,token)):
+            with pytest.raises(RuntimeError,match="rollback"):
+                delete_selected("postgres://x",user,"admin@example.com",(8,13),token)
+    assert changed.rolled_back and not changed.completed
