@@ -15,11 +15,6 @@ from src.bulk_sc import is_bulk_admin
 INVENTORY_SQL = """
 SELECT s.id,s.snapshot_date,s.sc_approved_from,s.state,s.created_at,
        s.importer_revision,
-       (SELECT count(DISTINCT (company,sc_no)) FROM core.sc_lines WHERE snapshot_id=s.id) AS sc,
-       (SELECT count(*) FROM core.sc_lines WHERE snapshot_id=s.id) AS sc_positions,
-       (SELECT count(*) FROM core.po_lines WHERE snapshot_id=s.id) AS po_positions,
-       (SELECT count(*) FROM core.sc_po_links WHERE snapshot_id=s.id) AS links,
-       (SELECT count(*) FROM core.receipts WHERE snapshot_id=s.id) AS receptions,
        (SELECT count(*) FROM core.pr_approval_dates WHERE snapshot_id=s.id) AS approvals,
        (SELECT count(*) FROM core.incidents WHERE snapshot_id=s.id) AS incidents,
        (SELECT count(*) FROM audit.source_files WHERE snapshot_id=s.id) AS files,
