@@ -20,7 +20,7 @@ from src.my_sc_selection import sync_my_sc_context, reset_my_sc_selection
 from src.group_statistics import group_statistics
 from src.snapshot_selection import latest_snapshot_id
 from src.snapshot_admin import (INVENTORY_SQL, DETAIL_SQL, ISSUES_SQL, STATES_SQL,
-                                deletion_plan, delete_selected)
+                                preview_selected, delete_selected)
 from src.quantity_format import format_sc_quantities
 from src.sc_csv_export import sc_overview_csv
 from src.bulk_sc import MY_SC_GROUP_ID, is_bulk_admin, write_bulk
@@ -1349,9 +1349,9 @@ if tab7.open:
 
                 if st.button("Simular eliminación",disabled=not chosen,key="snapshot_admin_preflight"):
                     try:
-                        with psycopg.connect(connection_string(),connect_timeout=15) as conn:
-                            with conn.cursor() as cur:
-                                plan,token = deletion_plan(cur,chosen)
+                        plan,token = preview_selected(
+                            snap_writer,snap_identity,snap_emails,chosen
+                        )
                         st.session_state["snapshot_admin_plan"] = {
                             "ids": chosen,"plan": plan,"token": token
                         }
