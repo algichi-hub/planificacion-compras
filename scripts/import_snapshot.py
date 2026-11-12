@@ -4,7 +4,7 @@ import hashlib
 import os
 import sys
 import time
-from datetime import date
+from datetime import date, datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
 
@@ -61,6 +61,35 @@ def parse_cutoff(value):
     if parsed.isoformat()!=value:
         raise ValueError("--from must use YYYY-MM-DD")
     return parsed
+
+def resolve_import_dates(args, archive, today=None):
+    """Default to the ZIP creation date; --period is relative to system today."""
+    timestamp=archive.stat()
+    created=getattr(timestamp,"st_birthtime",None)
+    if created is None:
+        created=timestamp.st_ctime if os.name=="nt" else timestamp.st_mtime
+    snapshot_date=args.date or datetime.fromtimestamp(created).date().isoformat()
+    date.fromisoformat(snapshot_date)  # Fail early for malformed manual dates.
+    period=getattr(args,"period",None)
+    if period is not None:
+        if period < 1:
+            raise ValueError("--period must be a positive number of days")
+        cutoff=(today or date.today()) - timedelta(days=period)
+    else:
+        cutoff=parse_cutoff(getattr(args,"from_date",None))
+    return snapshot_date,cutoff
+
+
+def matching_validated_snapshot(conn, hashes):
+    """Read only the latest validated snapshot; never trust staging as imported."""
+    with conn.cursor() as cur:
+        cur.execute("""SELECT id,source_hashes,importer_revision
+                       FROM audit.snapshots WHERE state='validated'
+                       ORDER BY snapshot_date DESC NULLS LAST,id DESC LIMIT 1""")
+        last=cur.fetchone()
+    return (last[0] if last and last[1]==hashes
+            and last[2]==IMPORTER_REVISION else None)
+
 
 def approved_sc_selection(path, cutoff):
     """Select whole (company,SC) groups by any approval date >= cutoff.
@@ -123,7 +152,9 @@ def run_import(args):
         changed=prepare_inputs(root)
     except InputArchiveError as exc:
         raise SystemExit(f"Input ZIP preflight failed: {exc}") from exc
-    log_event(root, "SNAPSHOT_START", snapshot_date=args.date, zip_updated=changed)
+    snapshot_date,cutoff=resolve_import_dates(args,root/"planificacion-compras.zip")
+    log_event(root, "SNAPSHOT_START", snapshot_date=snapshot_date,
+              approved_from=cutoff, zip_updated=changed)
     print("ZIP input: " + ("four CSVs updated" if changed else "unchanged; verified CSVs reused"),
           flush=True)
     for name in SOURCES:
@@ -134,7 +165,16 @@ def run_import(args):
     extra_path=root/"RecepcionesTotales.csv"
     if extra_path.is_file():
         hashes["RecepcionesTotales.csv"]=sha256(extra_path)
-    cutoff=parse_cutoff(getattr(args,"from_date",None))
+    connstr=os.environ.get("DATABASE_URL")
+    if not connstr:
+        raise SystemExit("Set DATABASE_URL outside the repository")
+    with psycopg.connect(connstr) as db:
+        previous=matching_validated_snapshot(db,hashes)
+    if previous is not None:
+        log_event(root,"SNAPSHOT_SKIPPED",reason="unchanged_sources",
+                  previous_snapshot=previous,snapshot_date=snapshot_date)
+        print(f"Sources unchanged from validated snapshot #{previous}; no import needed.",flush=True)
+        return None
     selected_sc_keys,conflicts=(approved_sc_selection(root/"SC_FAS.csv",cutoff)
                                if cutoff is not None else (None,{}))
     if cutoff is not None:
@@ -147,14 +187,11 @@ def run_import(args):
         for key,values in sorted(conflicts.items()):
             issue_rows.append((None,"SC_FAS.csv",None,"warning","SC_APPROVAL_DATE_CONFLICT",
                               f"SC {key}: approval dates {','.join(str(v) for v in sorted(values))}; selected as whole SC"))
-    connstr=os.environ.get("DATABASE_URL")
-    if not connstr:
-        raise SystemExit("Set DATABASE_URL outside the repository")
     with psycopg.connect(connstr) as db:
         with db.transaction():
             with db.cursor() as cur:
                 cur.execute("INSERT INTO audit.snapshots(snapshot_date,source_hashes,importer_revision,sc_approved_from) VALUES (%s,%s::jsonb,%s,%s) RETURNING id",
-                            (args.date,__import__("json").dumps(hashes),IMPORTER_REVISION,cutoff))
+                            (snapshot_date,__import__("json").dumps(hashes),IMPORTER_REVISION,cutoff))
                 sid=cur.fetchone()[0]
                 issue_rows=[(sid,*row[1:]) for row in issue_rows]
                 selected_po_keys=set()
@@ -284,35 +321,39 @@ def run_import(args):
                 if extra_path.is_file():
                     print("Conciliating PR approval dates (fourth source)...",flush=True)
                     approval_counts=import_approval_dates(
-                        cur,sid,extra_path,date.fromisoformat(args.date),
+                        cur,sid,extra_path,date.fromisoformat(snapshot_date),
                         hashes["RecepcionesTotales.csv"])
                     print("Fourth-source PR reconciliation:",dict(approval_counts),flush=True)
                 print("[5/5] Finalizing transaction...",flush=True)
-        log_event(root, "SNAPSHOT_VALIDATED", snapshot_id=sid, snapshot_date=args.date,
+        log_event(root, "SNAPSHOT_VALIDATED", snapshot_id=sid, snapshot_date=snapshot_date,
                   source_count=len(hashes), positions=classified_count,
                   quality_issues=len(issue_rows))
-        print("Validated snapshot",sid,"date",args.date)
+        print("Validated snapshot",sid,"date",snapshot_date)
         print("Source counts:",counts)
         print("Quality issues:",len(issue_rows))
         print("Snapshot validated with SC workflow computed. Latest validated snapshot is shown by default; inspect audit.import_issues before trusting results.")
     return sid
 
-if __name__=="__main__":
+def build_parser():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--date",help="Weekly snapshot date YYYY-MM-DD")
+    ap.add_argument("--date",help="Snapshot date YYYY-MM-DD (default: ZIP creation date)")
     ap.add_argument("--input",default="entrada")
-    ap.add_argument("--from",dest="from_date",metavar="YYYY-MM-DD",help="Include SC approved on or after date; keep all related PO/receipts/incidents")
+    selection=ap.add_mutually_exclusive_group()
+    selection.add_argument("--from",dest="from_date",metavar="YYYY-MM-DD",
+                           help="Include SC approved on or after this date")
+    selection.add_argument("--period",type=int,metavar="DAYS",
+                           help="Include SC approved during the last DAYS from system today")
     ap.add_argument("--no-progress",action="store_true",help="Disable progress bars")
-    args=ap.parse_args()
-    if args.date:
-        try:
-            run_import(args)
-        except BaseException as exc:
-            # Log a safe exception class, never a connection URL or secret.
-            # SystemExit from ZIP preflight already has its specific ZIP log.
-            if not isinstance(exc, KeyboardInterrupt):
-                log_event(args.input, "SNAPSHOT_FAILED",
-                          snapshot_date=args.date, error_type=type(exc).__name__)
-            raise
-    else:
-        ap.error("Provide --date")
+    return ap
+
+
+if __name__=="__main__":
+    args=build_parser().parse_args()
+    try:
+        run_import(args)
+    except BaseException as exc:
+        if not isinstance(exc, KeyboardInterrupt):
+            log_event(args.input,"SNAPSHOT_FAILED",
+                      snapshot_date=args.date or "ZIP",
+                      error_type=type(exc).__name__)
+        raise
