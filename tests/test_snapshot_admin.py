@@ -235,3 +235,13 @@ def test_app_snapshot_simulation_never_uses_readonly_dashboard_connection():
     assert "snap_writer,snap_identity,snap_emails,chosen" in app
     assert "psycopg.connect(connection_string(),connect_timeout=15) as conn:" not in app.split(
         'if st.button("Simular eliminación"',1)[1].split("preflight =",1)[0]
+
+
+def test_missing_snapshot_secret_is_diagnosed_before_preflight():
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    admin_section=app.split("if tab7.open:",1)[1]
+    assert 'st.secrets.get("SNAPSHOT_ADMIN_DATABASE_URL")' in admin_section
+    assert 'os.environ.get("SNAPSHOT_ADMIN_DATABASE_URL")' in admin_section
+    assert 'misplaced_snap_secret' in admin_section
+    assert 'disabled=not chosen or not snap_writer' in admin_section
+    assert 'SNAPSHOT_ADMIN_DATABASE_URL no está disponible' in admin_section
