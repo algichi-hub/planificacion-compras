@@ -88,13 +88,13 @@ def delete_snapshot(conn, snapshot_id, confirmation=None):
             meta = cur.fetchone()
             execute = validate_request(snapshot_id, confirmation, meta[1] if meta else None)
             cur.execute("SELECT id FROM audit.snapshots WHERE state='validated' "
-                        "ORDER BY snapshot_date DESC,id DESC LIMIT 1")
+                        "ORDER BY id DESC LIMIT 1")
             latest=cur.fetchone()
             is_latest=bool(latest and latest[0]==snapshot_id)
             if is_latest:
                 cur.execute("SELECT id FROM audit.snapshots "
                             "WHERE state='validated' AND id<>%s "
-                            "ORDER BY snapshot_date DESC,id DESC LIMIT 1", (snapshot_id,))
+                            "ORDER BY id DESC LIMIT 1", (snapshot_id,))
                 replacement=cur.fetchone()
             else:
                 replacement=None
