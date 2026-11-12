@@ -291,8 +291,21 @@ def test_snapshot_inventory_omits_unwanted_main_table_counts():
     for subquery in ("AS sc,", "AS sc_positions,", "AS po_positions,",
                      "AS links,", "AS receptions,"):
         assert subquery not in INVENTORY_SQL
-    assert '"Aprobaciones": history["approvals"]' in display
-    assert '"Incidencias": history["incidents"]' in display
+    for key in ('"Vigente":', '"Aprobaciones":', '"Incidencias":'):
+        assert key not in display
+    assert "AS approvals" not in INVENTORY_SQL
+    assert "AS incidents" not in INVENTORY_SQL
+
+
+def test_snapshot_delete_button_disables_during_transaction():
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    dialog=app.split('def confirm_snapshot_deletion():',1)[1].split('if st.button("Eliminar seleccionados"',1)[0]
+    assert "confirm_button = st.empty()" in dialog
+    assert 'confirm_button.button("Eliminar definitivamente"' in dialog
+    assert 'confirm_button.button("Eliminando...",disabled=True' in dialog
+    assert dialog.index('confirm_button.button("Eliminando..." '.rstrip()) < dialog.index("result = delete_selected(")
+    assert "snapshot_admin_plan" in dialog
+
 
 
 def test_inventory_and_deletion_fallback_use_newest_validated_id():
