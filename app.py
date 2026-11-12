@@ -19,6 +19,8 @@ from src.group_sc_view import group_overview, group_overview_source
 from src.my_sc_selection import sync_my_sc_context, reset_my_sc_selection
 from src.group_statistics import group_statistics
 from src.snapshot_selection import latest_snapshot_id
+from src.snapshot_admin import (INVENTORY_SQL, DETAIL_SQL, ISSUES_SQL, STATES_SQL,
+                                deletion_plan, delete_selected)
 from src.quantity_format import format_sc_quantities
 from src.sc_csv_export import sc_overview_csv
 from src.bulk_sc import MY_SC_GROUP_ID, is_bulk_admin, write_bulk
@@ -149,7 +151,7 @@ if project!="Todos":
     where+=" AND project=%s"
     params.append(project)
 
-tab1,tab2,tab6,tab3,tab4,tab5=st.tabs(["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR"])
+tab1,tab2,tab6,tab3,tab4,tab5,tab7=st.tabs(["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR","Snapshots"],key="main_sections",on_change="rerun")
 has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
 workflow_ready=False
 if has_workflow_table:
@@ -1251,3 +1253,161 @@ with tab6:
             render_sc_detail(line,sid,context="pr")
     elif not submitted:
         st.caption("Introduce un PR y pulsa Consultar PR para ver su Detalle SC.")
+
+
+# Lazy administration: no snapshot statistics queries while other tabs are open.
+if tab7.open:
+    with tab7:
+        st.subheader("Snapshots")
+        st.caption("Histórico de importaciones y eliminación controlada. Solo administradores.")
+        try:
+            snap_auth = bool(st.secrets.get("auth"))
+            snap_emails = str(st.secrets.get("BULK_ADMIN_EMAILS", ""))
+            snap_writer = st.secrets.get("SNAPSHOT_ADMIN_DATABASE_URL")
+        except (KeyError, FileNotFoundError):
+            snap_auth, snap_emails, snap_writer = False, "", None
+        snap_identity = st.user.to_dict() if snap_auth else {}
+        snap_authorized = is_bulk_admin(snap_identity, snap_emails)
+        if snap_auth and not snap_identity.get("is_logged_in"):
+            if st.button("Iniciar sesión con Google", key="snapshot_login"):
+                st.login("google")
+        elif snap_auth and snap_identity.get("is_logged_in"):
+            if st.button("Cerrar sesión",key="snapshot_logout"):
+                st.logout()
+        if not snap_authorized:
+            st.info("Requiere una cuenta administradora Google con correo verificado.")
+        else:
+            @st.cache_data(ttl=600,show_spinner=False)
+            def snapshot_admin_inventory():
+                return _read_management(INVENTORY_SQL)
+
+            try:
+                history = snapshot_admin_inventory()
+            except Exception as exc:
+                st.error(f"No se pudo cargar el inventario: {type(exc).__name__}")
+                st.stop()
+
+            st.button("Actualizar inventario",key="snapshot_refresh",
+                      on_click=snapshot_admin_inventory.clear)
+            if history.empty:
+                st.info("No hay snapshots.")
+            else:
+                valid = history.loc[history["state"] == "validated"]
+                active_id = int(valid.iloc[0]["id"]) if not valid.empty else None
+                display = pd.DataFrame({
+                    "Eliminar": False,
+                    "ID": history["id"].astype(int),
+                    "Vigente": history["id"].astype(int).eq(active_id),
+                    "Estado": history["state"],
+                    "Desde": history["sc_approved_from"],
+                    "Fecha": history["snapshot_date"],
+                    "Importado": history["created_at"],
+                    "SC": history["sc"].astype(int),
+                    "Pos. SC": history["sc_positions"].astype(int),
+                    "Pos. PO": history["po_positions"].astype(int),
+                    "PR": history["receptions"].astype(int),
+                    "Aprobaciones": history["approvals"].astype(int),
+                    "Incidencias": history["incidents"].astype(int),
+                    "CSV": history["files"].astype(int),
+                    "Avisos": history["warnings"].astype(int),
+                    "Errores": history["errors"].astype(int),
+                })
+                # This widget only selects rows. The database cannot be written
+                # without a separate explicit preview and confirmed action.
+                editor = st.data_editor(
+                    display,hide_index=True,use_container_width=True,num_rows="fixed",
+                    disabled=[col for col in display.columns if col != "Eliminar"],
+                    column_config={
+                        "Eliminar": st.column_config.CheckboxColumn("Eliminar"),
+                        "Vigente": st.column_config.CheckboxColumn("Vigente",disabled=True),
+                        "Desde": st.column_config.DateColumn("Desde",format="DD/MM/YYYY"),
+                        "Fecha": st.column_config.DateColumn("Fecha",format="DD/MM/YYYY"),
+                        "Importado": st.column_config.DatetimeColumn("Importado",format="DD/MM/YYYY HH:mm"),
+                    },
+                    key="snapshot_admin_selection",
+                )
+                chosen = tuple(sorted(int(x) for x in editor.loc[editor["Eliminar"],"ID"].tolist()))
+                st.caption(f"{len(chosen)} snapshots seleccionados. El vigente puede eliminarse "
+                           "siempre que quede otro validado.")
+                with st.expander("Detalle de importación",expanded=False,on_change="rerun") as detail:
+                    if detail.open:
+                        detail_id = st.selectbox(
+                            "Snapshot a consultar",history["id"].astype(int).tolist(),
+                            format_func=lambda value:f"#{value}",
+                            key="snapshot_admin_detail_id"
+                        )
+                        files = _read_management(DETAIL_SQL,(detail_id,))
+                        issues = _read_management(ISSUES_SQL,(detail_id,))
+                        states = _read_management(STATES_SQL,(detail_id,))
+                        st.markdown("**Archivos de origen**")
+                        st.dataframe(files,hide_index=True,use_container_width=True)
+                        st.markdown("**Estados operativos**")
+                        st.dataframe(states,hide_index=True,use_container_width=True)
+                        st.markdown("**Incidencias de importación**")
+                        st.dataframe(issues,hide_index=True,use_container_width=True)
+
+                if st.button("Simular eliminación",disabled=not chosen,key="snapshot_admin_preflight"):
+                    try:
+                        with psycopg.connect(connection_string(),connect_timeout=15) as conn:
+                            with conn.cursor() as cur:
+                                plan,token = deletion_plan(cur,chosen)
+                        st.session_state["snapshot_admin_plan"] = {
+                            "ids": chosen,"plan": plan,"token": token
+                        }
+                    except Exception as exc:
+                        st.session_state.pop("snapshot_admin_plan",None)
+                        st.error(f"No se puede preparar la eliminación: {exc}")
+
+                preflight = st.session_state.get("snapshot_admin_plan")
+                if preflight and preflight["ids"] == chosen:
+                    plan = preflight["plan"]
+                    st.warning(
+                        f"Simulación: {len(chosen)} snapshots; "
+                        f"{plan['total_rows']} filas. "
+                        f"Vigente resultante: #{plan['remaining_id']} "
+                        f"({plan['remaining_date']})."
+                    )
+                    for entry in plan["snapshots"]:
+                        with st.expander(f"#{entry['id']} · {entry['date']} · detalle de eliminación"):
+                            st.dataframe(pd.DataFrame(
+                                [{"Tabla":table,"Filas":number}
+                                 for table,number in entry["counts"].items()]
+                            ),hide_index=True,use_container_width=True)
+                    if not snap_writer:
+                        st.info("Para habilitar el borrado, configura SNAPSHOT_ADMIN_DATABASE_URL "
+                                "como secreto de Streamlit con privilegios restringidos.")
+                    else:
+                        @st.dialog("Confirmación definitiva de eliminación")
+                        def confirm_snapshot_deletion():
+                            st.error("Esta operación es irreversible. "
+                                     "Se conservará la auditoría del borrado.")
+                            st.write(f"Snapshots: {', '.join('#'+str(x) for x in chosen)}")
+                            st.write(f"Filas a eliminar: {plan['total_rows']}")
+                            st.write(f"Nuevo vigente: #{plan['remaining_id']}")
+                            phrase = st.text_input("Escribe ELIMINAR para confirmar",key="snapshot_delete_phrase")
+                            if st.button("Eliminar definitivamente",type="primary",
+                                         disabled=phrase!="ELIMINAR",key="snapshot_delete_confirm"):
+                                try:
+                                    result = delete_selected(
+                                        snap_writer,snap_identity,snap_emails,
+                                        chosen,preflight["token"]
+                                    )
+                                except Exception as exc:
+                                    st.error(f"Eliminación no realizada: {exc}")
+                                else:
+                                    available_snapshots.clear()
+                                    snapshot_admin_inventory.clear()
+                                    st.session_state.pop("snapshot_admin_plan",None)
+                                    st.session_state["snapshot_admin_result"] = (
+                                        f"Eliminados {len(chosen)} snapshots. "
+                                        f"Vigente actual: #{result['remaining_id']}."
+                                    )
+                                    st.rerun()
+                        if st.button("Eliminar seleccionados",type="primary",
+                                     key="snapshot_admin_delete_open"):
+                            confirm_snapshot_deletion()
+                elif preflight:
+                    st.session_state.pop("snapshot_admin_plan",None)
+                success = st.session_state.pop("snapshot_admin_result",None)
+                if success:
+                    st.success(success)
