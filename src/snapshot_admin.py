@@ -23,7 +23,7 @@ SELECT s.id,s.snapshot_date,s.sc_approved_from,s.state,s.created_at,
        (SELECT count(*) FROM audit.import_issues WHERE snapshot_id=s.id
         AND severity='error') AS errors
 FROM audit.snapshots s
-ORDER BY s.snapshot_date DESC,s.id DESC
+ORDER BY s.id DESC
 """
 
 DETAIL_SQL = """
@@ -65,7 +65,7 @@ def deletion_plan(cur, ids):
     cur.execute(
         "SELECT id,snapshot_date FROM audit.snapshots "
         "WHERE state='validated' AND id<>ALL(%s) "
-        "ORDER BY snapshot_date DESC NULLS LAST,id DESC LIMIT 1", (list(ids),)
+        "ORDER BY id DESC LIMIT 1", (list(ids),)
     )
     replacement = cur.fetchone()
     if replacement is None:
