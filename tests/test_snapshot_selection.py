@@ -1,4 +1,4 @@
-"""Latest eligible snapshot is always the dashboard default by date, not state."""
+"""Latest eligible snapshot is always the dashboard default by validated import ID, not source date."""
 from datetime import date, datetime
 from pathlib import Path
 
@@ -31,13 +31,13 @@ def test_latest_date_wins():
     assert latest_snapshot_id(records)==10
 
 
-def test_latest_date_wins_even_if_imported_later_with_older_date():
+def test_latest_import_id_wins_even_if_source_date_is_older():
     records=snap(
         (11,date(2026,11,1),"validated"),
         (8,date(2026,11,6),"validated"),
         (9,date(2026,11,8),"validated"),
     )
-    assert latest_snapshot_id(records)==9
+    assert latest_snapshot_id(records)==11
 
 
 def test_same_day_tie_uses_largest_id_consistently():
@@ -92,9 +92,9 @@ def test_eligible_states_are_explicit():
         latest_snapshot_id(pd.DataFrame([{"id":9}]))
 
 
-def test_app_uses_latest_date_order_and_id_with_manual_sidebar_control():
+def test_app_uses_latest_validated_id_order_with_manual_sidebar_control():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert "ORDER BY snapshot_date DESC NULLS LAST,id DESC" in app
+    assert "ORDER BY id DESC" in app
     assert "snapshot_ids.index(latest_id)" in app
     assert "sid=int(st.sidebar.selectbox(\"Snapshot\",snapshot_ids,index=default_idx," in app
     assert "snapshots[snapshots.state==\"active\"]" not in app
@@ -122,7 +122,7 @@ def test_snapshot_metadata_refresh_is_isolated_from_erp_cache():
         "if not connection_string():",1
     )[0]
     assert "_read_management(" in metadata
-    assert "snapshot_date DESC NULLS LAST,id DESC" in metadata
+    assert "ORDER BY id DESC" in metadata
     assert "state='validated'" in metadata
     assert "query(" not in metadata
     assert "query.clear()" not in app
