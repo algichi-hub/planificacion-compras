@@ -150,6 +150,7 @@ def test_confirmed_batch_rechecks_preview_and_audits_every_snapshot():
             else:
                 self.rowcount=1
         def fetchall(self): return [(8,),(13,)]
+        def fetchone(self): return (not getattr(self,"index_missing",False),)
 
     plan = {"snapshots":[
         {"id":8,"date":"2026-11-06","revision":"v1","hashes":{},
@@ -245,3 +246,38 @@ def test_missing_snapshot_secret_is_diagnosed_before_preflight():
     assert 'misplaced_snap_secret' in admin_section
     assert 'disabled=not chosen or not snap_writer' in admin_section
     assert 'SNAPSHOT_ADMIN_DATABASE_URL no está disponible' in admin_section
+
+
+def test_po_fk_index_migration_matches_actual_constraint():
+    script=(Path(__file__).resolve().parents[1]/"migrations"/
+            "019_sc_po_links_po_fk_index.sql").read_text(encoding="utf-8")
+    assert "CREATE INDEX IF NOT EXISTS ix_sc_po_links_by_po_fk" in script
+    assert "ON core.sc_po_links(snapshot_id,company,po_no,po_pos)" in script
+
+
+def test_missing_po_fk_index_aborts_without_any_deletion():
+    from contextlib import contextmanager
+    class Conn:
+        def __init__(self): self.queries=[]; self.aborted=False
+        def __enter__(self): return self
+        def __exit__(self,*args): return False
+        @contextmanager
+        def transaction(self):
+            try: yield self
+            except Exception:
+                self.aborted=True
+                raise
+        def cursor(self): return self
+        def execute(self,sql,params=None): self.queries.append(sql)
+        def fetchall(self): return [(1,)]
+        def fetchone(self): return (False,)
+    conn=Conn()
+    admin={"is_logged_in":True,"email_verified":True,"email":"admin@example.com"}
+    plan={"snapshots":[{"id":1}],"remaining_id":8}
+    with patch("src.snapshot_admin.psycopg.connect",return_value=conn):
+        with patch("src.snapshot_admin.deletion_plan",return_value=(plan,"x"*64)):
+            with pytest.raises(RuntimeError,match="migración 019"):
+                delete_selected("postgres://admin",admin,"admin@example.com",(1,),"x"*64)
+    assert conn.aborted
+    assert not any(q.startswith("DELETE FROM") for q in conn.queries)
+    assert not any("INSERT INTO audit.snapshot_deletions" in q for q in conn.queries)
