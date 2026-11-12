@@ -11,7 +11,7 @@ En los secretos de Streamlit Cloud:
 - `DATABASE_URL`: conexión de lectura ya utilizada por el dashboard.
 - `SNAPSHOT_ADMIN_DATABASE_URL`: **nueva** conexión PostgreSQL de escritura, guardada **solo** en los secretos del servidor. Debe permitir SELECT y DELETE sobre las tablas de cada snapshot e INSERT en `audit.snapshot_deletions`. Preferir un rol dedicado de mínimos privilegios, no el propietario de Neon. No copiar secretos al repositorio ni mostrarlos en la UI.
 
-Hasta configurar `SNAPSHOT_ADMIN_DATABASE_URL`, el administrador puede consultar, seleccionar y simular eliminaciones, pero no ejecutarlas. El acceso a esta conexión se valida después de comprobar el usuario Google verificado y autorizado.
+Hasta configurar `SNAPSHOT_ADMIN_DATABASE_URL`, el administrador puede consultar el inventario y seleccionar snapshots, pero **no simular ni ejecutar** su eliminación: ambas operaciones requieren comprobar todas las tablas (incluida `raw.source_rows`) con el rol de gestión. La simulación usa ese rol en una transacción explícitamente de **solo lectura**. Nunca se amplían los permisos de `DATABASE_URL` del dashboard. El acceso a esta conexión se valida después de comprobar el usuario Google verificado y autorizado.
 
 ## Operación
 
