@@ -981,6 +981,92 @@ with tab5:
             if st.session_state.get("pr_notice"):
                 st.success(st.session_state.pop("pr_notice"))
             today=datetime.now(ZoneInfo("Europe/Madrid")).date()
+            ledger=hand_deliveries()
+            st.markdown("**Importación múltiple de PR**")
+            if st.session_state.pop("pr_batch_clear_input",False):
+                st.session_state["pr_batch_input"]=""
+            st.caption("Pega grupos PR;Qty;DD/MM/AAAA;NBI separados por punto y coma (máximo 300 caracteres).")
+            bulk_text=st.text_area(
+                "Lista de entregas",
+                placeholder="769071;3;06/11/2026;8579;769072;20;06/11/2026;8579",
+                height=110,max_chars=300,key="pr_batch_input",
+            )
+            if st.button("Validar y ver vista previa",key="pr_batch_validate"):
+                try:
+                    candidate=parse_pr_batch(bulk_text,today=today)
+                    prs=sorted({record[0] for record in candidate})
+                    erp_frame=query(
+                        """SELECT receipt_no,count(*) AS n,
+                                  sum(approved_qty) AS approved_qty
+                           FROM core.receipts
+                           WHERE snapshot_id=%s AND receipt_no=ANY(%s)
+                           GROUP BY receipt_no""", (sid,prs),
+                    )
+                    erp_map={str(r["receipt_no"]):r for r in erp_frame.to_dict("records")}
+                    notes=batch_warnings(candidate,ledger.to_dict("records"),erp_map)
+                    st.session_state["pr_batch_preview"]={
+                        "text":bulk_text,"snapshot_id":sid,"records":candidate,
+                        "digest":batch_digest(candidate),"warnings":notes,
+                    }
+                    st.session_state["pr_batch_ack"]=False
+                except ValueError as exc:
+                    st.session_state.pop("pr_batch_preview",None)
+                    st.error(str(exc))
+            preview=st.session_state.get("pr_batch_preview")
+            if preview and (preview["text"]!=bulk_text or preview["snapshot_id"]!=sid):
+                # Never confirm changed or snapshot-mismatched input.
+                st.session_state.pop("pr_batch_preview",None)
+                preview=None
+                st.info("Texto o snapshot cambiado: vuelve a validar.")
+            if preview:
+                st.markdown(f"**Vista previa · {len(preview['records'])} entregas**")
+                display=pd.DataFrame(
+                    [(pr,format_quantity(qty),day.strftime("%d/%m/%Y"),nbi)
+                     for pr,qty,day,nbi in preview["records"]],
+                    columns=["PR","Qty","Fecha entrega","Recibido por NBI"],
+                )
+                st.dataframe(display,use_container_width=True,hide_index=True,
+                             height=min(380,38+len(display)*35))
+                notes=preview["warnings"]
+                if notes:
+                    st.warning(f"{len(notes)} advertencias. Revisa los casos antes de confirmar.")
+                    for note in notes[:20]:
+                        st.caption("• "+note)
+                    if len(notes)>20:
+                        st.caption(f"Y {len(notes)-20} advertencias adicionales.")
+                    acknowledge=st.checkbox("He revisado las advertencias y confirmo el lote",
+                                            key="pr_batch_ack")
+                else:
+                    acknowledge=True
+                    st.success("Formato validado. No se han detectado advertencias.")
+                if st.button("Confirmar e importar lote",type="primary",
+                             disabled=not acknowledge,key="pr_batch_confirm"):
+                    try:
+                        current=parse_pr_batch(bulk_text,today=today)
+                        if batch_digest(current)!=preview["digest"]:
+                            raise ValueError("La lista cambió después de la vista previa.")
+                        result=insert_pr_batch(
+                            pr_admin_dsn,pr_identity,pr_admin_emails,current,
+                            expected_digest=preview["digest"],today=today,
+                        )
+                    except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
+                        st.error(str(exc) if isinstance(exc,ValueError) else
+                                 f"No se pudo importar el lote: {type(exc).__name__}")
+                    else:
+                        st.session_state.pop("pr_batch_preview",None)
+                        st.session_state["pr_batch_clear_input"]=True
+                        if result["inserted"]:
+                            hand_deliveries.clear()
+                            st.session_state["pr_notice"]=(
+                                f"Lote #{result['batch_id']} importado: "
+                                f"{result['count']} entregas.")
+                        else:
+                            st.session_state["pr_notice"]=(
+                                "Este lote ya estaba importado. No se han duplicado entregas.")
+                        st.session_state["pr_grid_revision"]=st.session_state.get("pr_grid_revision",0)+1
+                        st.rerun()
+
+            st.markdown("**Registro unitario de PR**")
             with st.form("pr_add_delivery",clear_on_submit=True):
                 a,b,c,d=st.columns([2,1,2,2],gap="small")
                 with a:
@@ -993,7 +1079,6 @@ with tab5:
                 with d:
                     entered_nbi=st.text_input("Recibido por NBI",placeholder="NBI",max_chars=40)
                 submitted=st.form_submit_button("Añadir entrega",icon=":material/add:")
-            ledger=hand_deliveries()
             if submitted:
                 try:
                     pr=normalize_pr(entered_pr)
@@ -1026,90 +1111,6 @@ with tab5:
                     confirm_hand_delivery(pr,qty,day,nbi,warnings)
                 except ValueError as exc:
                     st.error(str(exc))
-            with st.expander("Importación múltiple de PR", expanded=False):
-                if st.session_state.pop("pr_batch_clear_input",False):
-                    st.session_state["pr_batch_input"]=""
-                st.caption("Pega grupos PR;Qty;DD/MM/AAAA;NBI consecutivos, separados por punto y coma (máximo 200).")
-                bulk_text=st.text_area(
-                    "Lista de entregas",
-                    placeholder="769071;3;06/11/2026;8579;769072;20;06/11/2026;8579",
-                    height=110,key="pr_batch_input",
-                )
-                if st.button("Validar y ver vista previa",key="pr_batch_validate"):
-                    try:
-                        candidate=parse_pr_batch(bulk_text,today=today)
-                        prs=sorted({record[0] for record in candidate})
-                        erp_frame=query(
-                            """SELECT receipt_no,count(*) AS n,
-                                      sum(approved_qty) AS approved_qty
-                               FROM core.receipts
-                               WHERE snapshot_id=%s AND receipt_no=ANY(%s)
-                               GROUP BY receipt_no""", (sid,prs),
-                        )
-                        erp_map={str(r["receipt_no"]):r for r in erp_frame.to_dict("records")}
-                        notes=batch_warnings(candidate,ledger.to_dict("records"),erp_map)
-                        st.session_state["pr_batch_preview"]={
-                            "text":bulk_text,"snapshot_id":sid,"records":candidate,
-                            "digest":batch_digest(candidate),"warnings":notes,
-                        }
-                        st.session_state["pr_batch_ack"]=False
-                    except ValueError as exc:
-                        st.session_state.pop("pr_batch_preview",None)
-                        st.error(str(exc))
-                preview=st.session_state.get("pr_batch_preview")
-                if preview and (preview["text"]!=bulk_text or preview["snapshot_id"]!=sid):
-                    # Never confirm changed or snapshot-mismatched input.
-                    st.session_state.pop("pr_batch_preview",None)
-                    preview=None
-                    st.info("Texto o snapshot cambiado: vuelve a validar.")
-                if preview:
-                    st.markdown(f"**Vista previa · {len(preview['records'])} entregas**")
-                    display=pd.DataFrame(
-                        [(pr,format_quantity(qty),day.strftime("%d/%m/%Y"),nbi)
-                         for pr,qty,day,nbi in preview["records"]],
-                        columns=["PR","Qty","Fecha entrega","Recibido por NBI"],
-                    )
-                    st.dataframe(display,use_container_width=True,hide_index=True,
-                                 height=min(380,38+len(display)*35))
-                    notes=preview["warnings"]
-                    if notes:
-                        st.warning(f"{len(notes)} advertencias. Revisa los casos antes de confirmar.")
-                        for note in notes[:20]:
-                            st.caption("• "+note)
-                        if len(notes)>20:
-                            st.caption(f"Y {len(notes)-20} advertencias adicionales.")
-                        acknowledge=st.checkbox("He revisado las advertencias y confirmo el lote",
-                                                key="pr_batch_ack")
-                    else:
-                        acknowledge=True
-                        st.success("Formato validado. No se han detectado advertencias.")
-                    if st.button("Confirmar e importar lote",type="primary",
-                                 disabled=not acknowledge,key="pr_batch_confirm"):
-                        try:
-                            current=parse_pr_batch(bulk_text,today=today)
-                            if batch_digest(current)!=preview["digest"]:
-                                raise ValueError("La lista cambió después de la vista previa.")
-                            result=insert_pr_batch(
-                                pr_admin_dsn,pr_identity,pr_admin_emails,current,
-                                expected_digest=preview["digest"],today=today,
-                            )
-                        except (ValueError,psycopg.Error,PermissionError,RuntimeError) as exc:
-                            st.error(str(exc) if isinstance(exc,ValueError) else
-                                     f"No se pudo importar el lote: {type(exc).__name__}")
-                        else:
-                            st.session_state.pop("pr_batch_preview",None)
-                            st.session_state["pr_batch_clear_input"]=True
-                            if result["inserted"]:
-                                hand_deliveries.clear()
-                                st.session_state["pr_notice"]=(
-                                    f"Lote #{result['batch_id']} importado: "
-                                    f"{result['count']} entregas.")
-                            else:
-                                st.session_state["pr_notice"]=(
-                                    "Este lote ya estaba importado. No se han duplicado entregas.")
-                            st.session_state["pr_grid_revision"]=st.session_state.get("pr_grid_revision",0)+1
-                            st.rerun()
-
             st.markdown("**Entregas reales registradas**")
             if ledger.empty:
                 st.caption("Sin entregas físicas registradas.")
