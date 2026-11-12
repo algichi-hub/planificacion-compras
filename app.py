@@ -114,7 +114,7 @@ def available_snapshots():
     return _read_management(
         "SELECT id,snapshot_date,state FROM audit.snapshots "
         "WHERE state='validated' "
-        "ORDER BY snapshot_date DESC NULLS LAST,id DESC"
+        "ORDER BY id DESC"
     )
 
 if not connection_string():
