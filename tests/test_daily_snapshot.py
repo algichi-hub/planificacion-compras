@@ -78,18 +78,18 @@ def test_only_latest_validated_matching_sources_skips():
     from scripts.import_snapshot import IMPORTER_REVISION
     hashes={"SC_FAS.csv":"one","INC_FAS.csv":"two",
             "Recepciones_Sevilla.csv":"three","RecepcionesTotales.csv":"four"}
-    db=FakeConn((12,hashes,IMPORTER_REVISION))
-    assert matching_validated_snapshot(db,hashes)==12
+    db=FakeConn((12,hashes,IMPORTER_REVISION,date(2025,11,12)))
+    assert matching_validated_snapshot(db,hashes,date(2025,11,12))==12
     assert "state='validated'" in db.cursor_obj.calls[0]
-    assert matching_validated_snapshot(FakeConn(None),hashes) is None
-    assert matching_validated_snapshot(FakeConn((12,dict(hashes,**{"INC_FAS.csv":"new"}),IMPORTER_REVISION)),hashes) is None
-    assert matching_validated_snapshot(FakeConn((12,hashes,"old-importer")),hashes) is None
+    assert matching_validated_snapshot(FakeConn(None),hashes,None) is None
+    assert matching_validated_snapshot(FakeConn((12,dict(hashes,**{"INC_FAS.csv":"new"}),IMPORTER_REVISION,date(2025,11,12))),hashes,date(2025,11,12)) is None
+    assert matching_validated_snapshot(FakeConn((12,hashes,"old-importer",date(2025,11,12))),hashes,date(2025,11,12)) is None
 
 
 def test_skip_gate_before_any_snapshot_insert_or_csv_parsing():
     code=(Path(__file__).resolve().parents[1]/"scripts/import_snapshot.py").read_text(encoding="utf-8")
     fn=code.split("def run_import(args):",1)[1].split("def build_parser():",1)[0]
-    assert fn.index("previous=matching_validated_snapshot(db,hashes)") < fn.index("selected_sc_keys,conflicts=")
+    assert fn.index("previous=matching_validated_snapshot(db,hashes,cutoff)") < fn.index("selected_sc_keys,conflicts=")
     assert fn.index("return None") < fn.index("INSERT INTO audit.snapshots")
     assert "SNAPSHOT_SKIPPED" in fn
     assert "SNAPSHOT_VALIDATED" in fn
@@ -111,7 +111,7 @@ def test_identical_sources_skip_before_writes_or_csv_scan(tmp_path,monkeypatch):
     class Connection(FakeConn):
         def __enter__(self):return self
         def __exit__(self,*args):return False
-    conn=Connection((13,snapshot_hashes,IMPORTER_REVISION))
+    conn=Connection((13,snapshot_hashes,IMPORTER_REVISION,date.today()-timedelta(days=365)))
     monkeypatch.setattr(mod.psycopg,"connect",lambda dsn:conn)
     monkeypatch.setattr(mod,"approved_sc_selection",
                         lambda *args:pytest.fail("CSV should not be parsed"))
@@ -119,3 +119,11 @@ def test_identical_sources_skip_before_writes_or_csv_scan(tmp_path,monkeypatch):
     assert mod.run_import(args) is None
     assert len(conn.cursor_obj.calls)==1
     assert any(a[1]=="SNAPSHOT_SKIPPED" for a,k in events)
+
+
+def test_same_hashes_but_different_cutoff_must_import():
+    from scripts.import_snapshot import IMPORTER_REVISION
+    hashes={"SC_FAS.csv":"same"}
+    conn=FakeConn((13,hashes,IMPORTER_REVISION,date(2026,1,1)))
+    assert matching_validated_snapshot(conn,hashes,date(2025,11,12)) is None
+    assert "ORDER BY id DESC" in conn.cursor_obj.calls[0]
