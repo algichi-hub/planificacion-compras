@@ -141,24 +141,22 @@ def test_empty_and_incomplete_data_rejected_without_manufactured_counts():
 def test_group_frontend_has_stats_only_and_sc_timeline_unchanged():
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
+    common=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
     sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
     assert 'st.button("Resumen"' not in group
-    assert "if not stats_ready:" in group
-    assert 'stat_table=group_statistics(items,stats_saved[1],today_madrid)' in group
-    assert group.index("if stats_ready:") < group.index("sc_event=st.dataframe(")
-    assert group.index("sc_event=st.dataframe(") < group.index("event_group=st.dataframe(")
+    assert 'if not stats_saved or stats_saved[0]!=group_key:' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'stat_table=group_statistics(items,status,today_madrid)' in common
+    assert common.index("sc_event=st.dataframe(") < common.index("event_group=st.dataframe(")
     assert "render_planning_timeline(" not in group
-    assert "timeline_visible(" not in group
     assert "group_timeline" not in group
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in sc
     assert 'key="sc_timeline_toggle"' in sc
-    assert 'render_sc_detail(line, sid, context="group")' in group
+    assert 'render_sc_detail(line,sid,context="group")' in common
     assert 'render_sc_detail(line, sid, context="seguimiento")' in sc
-    assert group.count("query(")==1
+    assert "query(" not in group
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
-    assert "stats_saved[0]==group_key" in group
-
 
 def test_pass_date_does_not_mark_operatively_completed_line_as_overdue():
     # Contradictory ERP totals require audit, but "completed" must not
@@ -205,7 +203,13 @@ def test_associated_po_ignores_cancelled_and_non_po_identifiers():
 def test_group_stats_po_is_second_column_without_extra_neon_query():
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert '"PO asociados":st.column_config.TextColumn' in group
-    assert "linked.po_positions,linked.planned_date" in group
-    assert group.count("query(")==1
+    common=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
+    loader=app.split("def load_sc_collection_status(",1)[1].split(
+        "def render_sc_collection(",1)[0]
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
+    assert '"PO asociados":st.column_config.TextColumn' in common
+    assert "linked.po_positions,linked.planned_date" in loader
+    assert loader.count("return query(")==1
+    assert 'load_sc_collection_status(' in group
+    assert "query(" not in common
+
