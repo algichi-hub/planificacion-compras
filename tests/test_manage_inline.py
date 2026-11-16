@@ -108,8 +108,9 @@ def test_group_sc_reporting_retains_read_only_and_selection():
     app = (ROOT / "app.py").read_text(encoding="utf-8")
     group_view = app.split("with tab3:", 1)[1].split("with tab4:", 1)[0]
     assert "write_bulk(" not in group_view
-    assert 'selection_mode="single-row"' in group_view
-    assert "format_sc_quantities(bulk_view.style).apply(" in group_view
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group_view
+    assert 'selection_mode="single-row"' in app.split('def render_sc_collection(',1)[1].split('with tab1:',1)[0]
+    assert "format_sc_quantities(bulk_view.style).apply(" in app.split('def render_sc_collection(',1)[1].split('with tab1:',1)[0]
 
 
 def test_aggrid_layout_pin_and_delete_column():
