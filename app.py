@@ -151,7 +151,7 @@ if project!="Todos":
     where+=" AND project=%s"
     params.append(project)
 
-tab1,tab2,tab6,tab3,tab4,tab5,tab7=st.tabs(["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR","Snapshots"],key="main_sections",on_change="rerun")
+tab1,tab2,tab6,tab8,tab3,tab4,tab5,tab7=st.tabs(["Resumen","Seguimiento SC","Seguimiento PR","Proyectos","Mis SC","Manage SC","Manage PR","Snapshots"],key="main_sections",on_change="rerun")
 has_workflow_table=query("SELECT to_regclass('planning.sc_workflow_status') IS NOT NULL AS available").iloc[0]["available"]
 workflow_ready=False
 if has_workflow_table:
@@ -299,18 +299,18 @@ def overview_column_config():
             help="Estado operativo SC"),
     }
 
-def render_my_sc_timeline_control(source, snapshot_id, group_id, revision, sc_number, today):
+def render_my_sc_timeline_control(source, snapshot_id, group_id, revision, sc_number, today, scope=scope):
     """Independent and lazy; no PR-event read until the selected SC opens it."""
-    sync_context(st.session_state,"my_sc",(snapshot_id,group_id,revision,sc_number))
+    sync_context(st.session_state,scope,(snapshot_id,group_id,revision,sc_number))
     st.button(
-        "Ocultar cronograma" if timeline_visible(st.session_state,"my_sc")
+        "Ocultar cronograma" if timeline_visible(st.session_state,scope)
         else "Mostrar cronograma",
-        key=f"my_sc_timeline_toggle_{snapshot_id}_{group_id}_{revision}_{sc_number}",
-        on_click=toggle_timeline,args=(st.session_state,"my_sc")
+        key=f"{scope}_timeline_toggle_{snapshot_id}_{group_id}_{revision}_{sc_number}",
+        on_click=toggle_timeline,args=(st.session_state,scope)
     )
-    if not timeline_visible(st.session_state,"my_sc"):
+    if not timeline_visible(st.session_state,scope):
         return
-    timeline_cached=st.session_state.get("my_sc_timeline_data")
+    timeline_cached=st.session_state.get(f"{scope}_timeline_data")
     if timeline_cached is None:
         source_table=("planning.sc_workflow_status" if workflow_ready
                       else "planning.v_sc_coverage")
@@ -323,14 +323,14 @@ def render_my_sc_timeline_control(source, snapshot_id, group_id, revision, sc_nu
             """+po_link_summary+"""
             WHERE s.snapshot_id=%s AND s.sc_no=%s
             ORDER BY s.company,s.sc_no,s.sc_pos""",(snapshot_id,sc_number))
-        st.session_state["my_sc_timeline_data"]=timeline_cached
+        st.session_state[f"{scope}_timeline_data"]=timeline_cached
     timeline_source=source.loc[source["sc_pos"].notna()].merge(
         timeline_cached,on=["company","sc_no","sc_pos"],
         how="left",sort=False,validate="one_to_one"
     )
     timeline_source.attrs["physical_ledger"]=hand_deliveries()
     timeline_source.attrs["receipt_links"]=_receipt_links_for_sc(snapshot_id,(sc_number,))
-    render_planning_timeline(timeline_source,today,f"my_sc_{snapshot_id}_{sc_number}")
+    render_planning_timeline(timeline_source,today,f"{scope}_{snapshot_id}_{sc_number}")
 
 
 def render_planning_timeline(source, today, key):
@@ -608,6 +608,87 @@ try:
 except psycopg.Error:
     groups=pd.DataFrame(columns=["id","name","description"])
 
+
+def load_sc_collection_status(snapshot_id, *, numbers=None, project_name=None):
+    """Shared reconciled SQL: one cached query per SC list or project."""
+    if (numbers is None) == (project_name is None):
+        raise ValueError("Select either SC numbers or one project.")
+    condition = "s.sc_no=ANY(%s)" if numbers is not None else "s.project=%s"
+    argument = numbers if numbers is not None else project_name
+    source_table=("planning.sc_workflow_status" if workflow_ready
+                  else "planning.v_sc_coverage")
+    status_column="workflow_state" if workflow_ready else "coverage_state"
+    return query(f"""SELECT s.company,s.sc_no,s.sc_pos,s.article,
+                          s.description,s.project,s.requested_qty,s.ordered_qty,
+                          s.received_qty,s.approved_qty,s.{status_column},
+                          linked.po_positions,linked.planned_date,linked.pr_numbers
+                   FROM {source_table} s
+                   """+po_link_overview+f"""
+                   WHERE s.snapshot_id=%s AND {condition}
+                   ORDER BY s.company,s.sc_no,
+                       CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
+                           THEN btrim(s.sc_pos)::numeric END NULLS LAST,
+                       s.sc_pos""",(snapshot_id,argument))
+
+
+def render_sc_collection(items, status, scope, collection_id):
+    """Same two-level SC browsing for Mis SC and project-scoped inventories."""
+    context=(sid,collection_id,tuple(items["sc_no"].astype(str)))
+    revision=sync_my_sc_context(st.session_state,context,scope=scope)
+    today_madrid=datetime.now(ZoneInfo("Europe/Madrid")).date()
+    stat_table=group_statistics(items,status,today_madrid)
+    sc_event=st.dataframe(
+        stat_table,hide_index=True,use_container_width=True,
+        column_config={
+            "Num SC":st.column_config.TextColumn("Num SC",width="small"),
+            "PO asociados":st.column_config.TextColumn("PO asociados",width="medium"),
+            "Descripción contextual":st.column_config.TextColumn(
+                "Descripción contextual",width="large"
+            ),
+            **{name:st.column_config.TextColumn(name,width="small")
+               for name in ("Pend PO","Pass Date","Full Received","Full Approved")},
+        },
+        on_select="rerun",selection_mode="single-row",
+        key=f"{scope}_summary_{sid}_{collection_id}_{revision}",
+    )
+    if sc_event.selection.rows:
+        selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])
+        chosen_items=items.loc[items["sc_no"].astype(str).eq(selected_sc)]
+        chosen_status=status.loc[status["sc_no"].astype(str).eq(selected_sc)]
+        group_source=group_overview_source(chosen_items,chosen_status)
+        group_source=enrich_delivery_status(group_source,sid)
+        bulk_view=overview_display(group_source)
+        missing=group_source["sc_pos"].isna()
+        bulk_view.loc[missing,"SC/Pos"]=group_source.loc[missing,"sc_no"]
+        st.markdown(f"#### Posiciones SC {selected_sc}")
+        st.caption(f"{len(bulk_view)} posiciones o referencias. "
+                   "Selecciona una posición para consultar su detalle.")
+        event_group=st.dataframe(
+            format_sc_quantities(bulk_view.style).apply(
+                overview_row_style,axis=1,today=today_madrid
+            ),
+            hide_index=True,use_container_width=True,
+            column_config=overview_column_config(),
+            on_select="rerun",selection_mode="single-row",
+            key=f"{scope}_positions_{sid}_{collection_id}_{revision}_{selected_sc}",
+        )
+        sc_export_button(
+            bulk_view,
+            f"{scope}_sc_{selected_sc}_snapshot_{sid}.csv",
+            f"export_{scope}_{sid}_{collection_id}_{revision}_{selected_sc}",
+        )
+        render_my_sc_timeline_control(
+            group_source,sid,collection_id,revision,selected_sc,today_madrid,
+            scope=scope
+        )
+        if event_group.selection.rows:
+            line=group_source.iloc[event_group.selection.rows[0]]
+            if pd.isna(line.get("company")) or pd.isna(line.get("sc_pos")):
+                st.info("Esta SC no figura en el snapshot seleccionado; no hay detalle que consultar.")
+            else:
+                render_sc_detail(line,sid,context="group")
+
+
 with tab3:
     st.subheader("Mis SC")
     st.caption("Resumen y detalle de compras, recepción y aprobación por SC del snapshot seleccionado.")
@@ -619,89 +700,40 @@ with tab3:
         if items.empty:
             st.info("Este grupo todavía no tiene SC asociadas.")
         else:
-            # Lazy summary: no position details until the user selects a SC.
             group_key=(sid,group_id,tuple(items["sc_no"].astype(str).tolist()))
-            selection_revision=sync_my_sc_context(st.session_state,group_key)
             stats_saved=st.session_state.get("group_statistics_result")
-            stats_ready=bool(stats_saved and stats_saved[0]==group_key)
-            if not stats_ready:
-                numbers=items["sc_no"].astype(str).tolist()
-                source_table=("planning.sc_workflow_status" if workflow_ready
-                              else "planning.v_sc_coverage")
-                status_column="workflow_state" if workflow_ready else "coverage_state"
-                group_status=query(f"""SELECT s.company,s.sc_no,s.sc_pos,s.article,
-                               s.description,s.project,s.requested_qty,s.ordered_qty,
-                               s.received_qty,s.approved_qty,s.{status_column},
-                               linked.po_positions,linked.planned_date,linked.pr_numbers
-                               FROM {source_table} s
-                               """+po_link_overview+"""
-                               WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
-                               ORDER BY s.company,s.sc_no,
-                                   CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
-                                       THEN btrim(s.sc_pos)::numeric END NULLS LAST,
-                                   s.sc_pos""",(sid,numbers))
+            if not stats_saved or stats_saved[0]!=group_key:
+                group_status=load_sc_collection_status(
+                    sid,numbers=items["sc_no"].astype(str).tolist()
+                )
                 st.session_state["group_statistics_result"]=(group_key,group_status)
                 stats_saved=st.session_state["group_statistics_result"]
-                stats_ready=True
-            if stats_ready:
-                today_madrid=datetime.now(ZoneInfo("Europe/Madrid")).date()
-                stat_table=group_statistics(items,stats_saved[1],today_madrid)
-                # Native single-row checkbox selection, empty on every new summary.
-                sc_event=st.dataframe(
-                    stat_table,hide_index=True,use_container_width=True,
-                    column_config={
-                        "Num SC":st.column_config.TextColumn("Num SC",width="small"),
-                        "PO asociados":st.column_config.TextColumn("PO asociados",width="medium"),
-                        "Descripción contextual":st.column_config.TextColumn(
-                            "Descripción contextual",width="large"
-                        ),
-                        **{name:st.column_config.TextColumn(name,width="small")
-                           for name in ("Pend PO","Pass Date","Full Received","Full Approved")},
-                    },
-                    on_select="rerun",selection_mode="single-row",
-                    key=f"my_sc_summary_{sid}_{group_id}_{selection_revision}",
+            render_sc_collection(items,stats_saved[1],"my_sc",group_id)
+
+
+# Loading the project report is independent and only runs when its tab is open.
+if tab8.open:
+    with tab8:
+        st.subheader("Proyectos")
+        project_options=projects["project"].astype(str).tolist() if not projects.empty else []
+        if not project_options:
+            st.info("El snapshot seleccionado no contiene proyectos.")
+        else:
+            chosen_project=st.selectbox(
+                "Proyecto",project_options,key=f"project_sc_select_{sid}"
+            )
+            project_status=load_sc_collection_status(
+                sid,project_name=chosen_project
+            )
+            if project_status.empty:
+                st.info("No hay posiciones SC para este proyecto.")
+            else:
+                project_items=(project_status[["sc_no","description"]]
+                    .drop_duplicates(subset="sc_no")
+                    .rename(columns={"description":"context_description"}))
+                render_sc_collection(
+                    project_items,project_status,"project_sc",chosen_project
                 )
-                if sc_event.selection.rows:
-                    selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])
-                    # Filter the already loaded group frame without a new
-                    # ERP status query. Keep absent snapshot references visible.
-                    chosen_items=items.loc[items["sc_no"].astype(str).eq(selected_sc)]
-                    chosen_status=stats_saved[1].loc[
-                        stats_saved[1]["sc_no"].astype(str).eq(selected_sc)
-                    ]
-                    group_source=group_overview_source(chosen_items,chosen_status)
-                    group_source=enrich_delivery_status(group_source,sid)
-                    bulk_view=overview_display(group_source)
-                    missing=group_source["sc_pos"].isna()
-                    bulk_view.loc[missing,"SC/Pos"]=group_source.loc[missing,"sc_no"]
-                    st.markdown(f"#### Posiciones SC {selected_sc}")
-                    st.caption(f"{len(bulk_view)} posiciones o referencias. "
-                               "Selecciona una posición para consultar su detalle.")
-                    # The child widget key tracks the parent SC, so selecting a
-                    # different SC can never inherit a previous position.
-                    event_group=st.dataframe(
-                        format_sc_quantities(bulk_view.style).apply(
-                            overview_row_style,axis=1,today=today_madrid
-                        ),
-                        hide_index=True,use_container_width=True,
-                        column_config=overview_column_config(),
-                        on_select="rerun",selection_mode="single-row",
-                        key=f"my_sc_positions_{sid}_{group_id}_{selection_revision}_{selected_sc}",
-                    )
-                    sc_export_button(
-                        bulk_view,
-                        f"group_sc_{group_id}_sc_{selected_sc}_snapshot_{sid}.csv",
-                        f"export_group_{sid}_{group_id}_{selection_revision}_{selected_sc}",
-                    )
-                    render_my_sc_timeline_control(group_source,sid,group_id,
-                                                  selection_revision,selected_sc,today_madrid)
-                    if event_group.selection.rows:
-                        selected_index=event_group.selection.rows[0]
-                        line=group_source.iloc[selected_index]
-                        if pd.isna(line.get("company")) or pd.isna(line.get("sc_pos")):
-                            st.info("Esta SC no figura en el snapshot seleccionado; no hay detalle que consultar.")
-                        else:
-                            render_sc_detail(line, sid, context="group")
 
 with tab4:
     st.subheader("Manage SC")
