@@ -5,12 +5,14 @@ on context changes and explicit summary refresh ensures no preselected rows.
 """
 
 
-def sync_my_sc_context(state, context):
+def sync_my_sc_context(state, context, scope="my_sc"):
     """Return widget revision; invalidate stale selections for another context."""
-    if state.get("my_sc_context") != context:
-        state["my_sc_context"] = context
-        state["my_sc_revision"] = state.get("my_sc_revision", 0) + 1
-    return state["my_sc_revision"]
+    key = f"{scope}_context"
+    revision = f"{scope}_revision"
+    if state.get(key) != context:
+        state[key] = context
+        state[revision] = state.get(revision, 0) + 1
+    return state[revision]
 
 
 def reset_my_sc_selection(state):
