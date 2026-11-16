@@ -17,6 +17,9 @@ def test_projects_tab_position_and_lazy_catalogue_reuse():
     assert 'if tab8.open:' in APP
     assert 'project_options=projects["project"].astype(str).tolist()' in APP
     assert 'key=f"project_sc_select_{sid}"' in APP
+    assert '"Proyecto",project_options,index=None,' in APP
+    assert 'if chosen_project is not None:' in APP
+    assert APP.index('if chosen_project is not None:') < APP.index('sid,project_name=chosen_project')
     projects=APP.split("if tab8.open:",1)[1].split("with tab4:",1)[0]
     assert "SELECT DISTINCT project" not in projects
     assert "load_sc_collection_status(" in projects
