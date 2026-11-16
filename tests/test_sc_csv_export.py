@@ -70,18 +70,23 @@ def test_empty_csv_keeps_headers():
 def test_both_views_share_pr_projection_export_and_selection():
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
     sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert app.count("linked.po_positions,linked.planned_date,linked.pr_numbers")==3
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
+    common=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
+    loader=app.split("def load_sc_collection_status(",1)[1].split(
+        "def render_sc_collection(",1)[0]
+    assert "linked.po_positions,linked.planned_date,linked.pr_numbers" in loader
     assert app.count("GROUP BY r.receipt_no")==1
     assert "r.snapshot_id=lr.snapshot_id" in app
     assert "lr.sc_no=s.sc_no AND lr.sc_pos=s.sc_pos" in app
     assert "r.po_no=lr.po_no AND r.po_pos=lr.po_pos" in app
     assert "sc_export_button(visible_overview," in sc
-    assert "sc_export_button(\n                        bulk_view," in group
+    assert "sc_export_button(\n            bulk_view," in common
     assert sc.index("sc_export_button") > sc.index("event=st.dataframe(")
-    assert group.index("sc_export_button") > group.index("event_group=st.dataframe(")
+    assert common.index("sc_export_button") > common.index("event_group=st.dataframe(")
     assert 'selection_mode="single-row"' in sc
-    assert 'selection_mode="single-row"' in group
+    assert common.count('selection_mode="single-row"')==2
     assert "render_sc_detail(line, sid" in sc
-    assert "render_sc_detail(line, sid" in group
+    assert 'render_sc_detail(line,sid,context="group")' in common
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
     assert "data=sc_overview_csv(view)" in app
+
