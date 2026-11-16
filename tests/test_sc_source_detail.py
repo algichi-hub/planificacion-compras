@@ -123,7 +123,7 @@ def test_both_sc_tabs_share_new_detail_without_economic_data():
     assert "st.markdown(\"#### REAC\")" in shared
     assert "st.markdown(\"#### Incidencias\")" in shared
     assert 'render_sc_detail(line, sid, context="seguimiento")' in app
-    assert 'render_sc_detail(line, sid, context="group")' in app
+    assert 'render_sc_detail(line,sid,context="group")' in app
     assert '"Precio unitario"' not in shared
     assert '"Importe"' not in shared
 
