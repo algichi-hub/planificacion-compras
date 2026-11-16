@@ -172,6 +172,6 @@ def test_manage_pr_batch_is_first_always_visible_and_limited_to_300_characters()
     assert 'with st.expander("Importación múltiple de PR"' not in section
     assert section.index('st.markdown("**Importación múltiple de PR**")') < section.index('with st.form("pr_add_delivery"')
     assert 'height=110,max_chars=300,key="pr_batch_input"' in section
-    assert 'st.markdown("**Registro unitario de PR**")' in section
+    assert 'with st.expander("Registro unitario de PR",expanded=False):' in section
     assert 'st.button("Confirmar e importar lote"' in section
     assert 'st.form_submit_button("Añadir entrega"' in section
