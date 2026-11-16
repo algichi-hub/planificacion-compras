@@ -299,7 +299,7 @@ def overview_column_config():
             help="Estado operativo SC"),
     }
 
-def render_my_sc_timeline_control(source, snapshot_id, group_id, revision, sc_number, today, scope=scope):
+def render_my_sc_timeline_control(source, snapshot_id, group_id, revision, sc_number, today, scope="my_sc"):
     """Independent and lazy; no PR-event read until the selected SC opens it."""
     sync_context(st.session_state,scope,(snapshot_id,group_id,revision,sc_number))
     st.button(
