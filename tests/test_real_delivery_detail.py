@@ -71,7 +71,8 @@ def test_both_sc_views_share_real_delivery_section_without_download_or_write():
     individual=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
     grouped=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     assert 'render_sc_detail(line, sid, context="seguimiento")' in individual
-    assert 'render_sc_detail(line, sid, context="group")' in grouped
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in grouped
+    assert 'render_sc_detail(line,sid,context="group")' in app
     assert 'st.markdown("#### Entrega real")' in shared
     assert 'related_prs=linked_receipt_numbers(trace)' in shared
     assert 'hand_deliveries() if related_prs else pd.DataFrame()' in shared
@@ -109,5 +110,5 @@ def test_nbi_always_in_real_delivery_both_views_with_missing_legacy_values():
     ]
     code=(ROOT/"app.py").read_text(encoding="utf-8")
     assert 'render_sc_detail(line, sid, context="seguimiento")' in code
-    assert 'render_sc_detail(line, sid, context="group")' in code
+    assert 'render_sc_detail(line,sid,context="group")' in code
     assert 'st.dataframe(real_deliveries,use_container_width=True,hide_index=True' in code
