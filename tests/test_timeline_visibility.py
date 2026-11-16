@@ -80,13 +80,14 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     from pathlib import Path
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
     sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
+    common=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
+    helper=app.split("def render_my_sc_timeline_control(",1)[1].split("def render_planning_timeline(",1)[0]
+    loader=app.split("def load_sc_collection_status(",1)[1].split("def render_sc_collection(",1)[0]
     assert 'sync_context(st.session_state,"sc",(sid,sc_number))' in sc
     assert '"Ocultar cronograma" if timeline_visible(st.session_state,"sc")' in sc
     assert 'else "Mostrar cronograma",key="sc_timeline_toggle"' in sc
     assert 'on_click=toggle_timeline,args=(st.session_state,"sc")' in sc
-    assert 'if st.button(' not in sc.split('# State belongs only to this SC',1)[1].split('if timeline_visible(st.session_state,"sc"):',1)[0]
     assert sc.count("po_link_overview")==2
     assert sc.count("po_link_summary")==1
     assert sc.index('if timeline_visible(st.session_state,"sc"):') < sc.index(
@@ -95,18 +96,17 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     before_toggle=sc.split('if timeline_visible(st.session_state,"sc"):',1)[0]
     assert "po_link_summary" not in before_toggle
     assert "render_planning_timeline(" not in before_toggle
-
-    # Group SC computes its summary automatically, while position details stay lazy.
-    assert 'st.button("Resumen"' not in group
-    assert "if not stats_ready:" in group
-    assert 'if stats_ready:' in group
-    assert 'if sc_event.selection.rows:' in group
+    assert 'if not stats_saved or stats_saved[0]!=group_key:' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'sc_event=st.dataframe(' in common
+    assert 'if sc_event.selection.rows:' in common
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
-    assert group.count("po_link_overview")==1
-    assert "po_link_summary" not in group
+    assert 'po_link_overview' in loader
+    assert "po_link_summary" not in loader
     assert "render_planning_timeline(" not in group
-    assert 'render_my_sc_timeline_control(group_source,sid,group_id,' in group
-    assert 'render_sc_detail(line, sid, context="group")' in group
+    assert 'render_my_sc_timeline_control(' in common
+    assert 'if not timeline_visible(st.session_state,scope):' in helper
+    assert 'render_sc_detail(line,sid,context="group")' in common
     assert 'render_sc_detail(line, sid, context="seguimiento")' in sc
 
 def test_sc_lightweight_sql_has_no_dangling_select_comma():
@@ -140,17 +140,13 @@ def test_sc_lightweight_sql_has_no_dangling_select_comma():
 def test_group_statistics_sql_does_not_have_dangling_comma():
     from pathlib import Path
     import re
-    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(
-        encoding="utf-8"
-    )
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    overview=group.split('if not stats_ready:',1)[1].split(
-        'st.session_state["group_statistics_result"]',1
-    )[0]
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    overview=app.split("def load_sc_collection_status(",1)[1].split(
+        "def render_sc_collection(",1)[0]
     assert "linked.po_positions,linked.planned_date" in overview
     assert "FROM {source_table} s" in overview
-    assert not re.search(r",\\s*FROM\\s+",overview,re.IGNORECASE)
-
+    assert not re.search(r",\s*FROM\s+",overview,re.IGNORECASE)
+    assert 'WHERE s.snapshot_id=%s AND {condition}' in overview
 
 def test_button_caption_matches_visible_state_on_every_callback():
     """Streamlit on_click runs before label evaluation on the rerun."""
@@ -205,14 +201,15 @@ def test_same_source_fields_and_renderer_for_both_lazy_views():
     helper=app.split("def render_my_sc_timeline_control(",1)[1].split(
         "def render_planning_timeline(",1)[0]
     sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
     end="ORDER BY s.company,s.sc_no,s.sc_pos"
     sc_query=sc.split('timeline_data=query(f"""',1)[1].split(end,1)[0]
     my_query=helper.split('timeline_cached=query(f"""',1)[1].split(end,1)[0]
     assert ''.join(sc_query.split())==''.join(my_query.split())
-    assert 'if not timeline_visible(st.session_state,"my_sc"):\n        return' in helper
+    assert 'if not timeline_visible(st.session_state,scope):\n        return' in helper
     assert helper.index('if not timeline_visible(') < helper.index("timeline_cached=query(")
     assert 'render_planning_timeline(timeline_source,today,' in helper
     assert 'render_planning_timeline(sc_timeline_source,madrid_today,' in sc
     assert 'render_planning_timeline(' not in group
     assert 'st.button("Resumen"' not in group
+
