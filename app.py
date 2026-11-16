@@ -721,20 +721,23 @@ if tab8.open:
             st.info("El snapshot seleccionado no contiene proyectos.")
         else:
             chosen_project=st.selectbox(
-                "Proyecto",project_options,key=f"project_sc_select_{sid}"
+                "Proyecto",project_options,index=None,
+                placeholder="Selecciona un proyecto",
+                key=f"project_sc_select_{sid}"
             )
-            project_status=load_sc_collection_status(
-                sid,project_name=chosen_project
-            )
-            if project_status.empty:
-                st.info("No hay posiciones SC para este proyecto.")
-            else:
-                project_items=(project_status[["sc_no","description"]]
-                    .drop_duplicates(subset="sc_no")
-                    .rename(columns={"description":"context_description"}))
-                render_sc_collection(
-                    project_items,project_status,"project_sc",chosen_project
+            if chosen_project is not None:
+                project_status=load_sc_collection_status(
+                    sid,project_name=chosen_project
                 )
+                if project_status.empty:
+                    st.info("No hay posiciones SC para este proyecto.")
+                else:
+                    project_items=(project_status[["sc_no","description"]]
+                        .drop_duplicates(subset="sc_no")
+                        .rename(columns={"description":"context_description"}))
+                    render_sc_collection(
+                        project_items,project_status,"project_sc",chosen_project
+                    )
 
 with tab4:
     st.subheader("Manage SC")
