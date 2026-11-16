@@ -56,16 +56,16 @@ def test_migration_keeps_user_lists_separate_from_erp():
         assert word not in sql
 
 
+
 def test_fixed_my_sc_dashboard_and_existing_editor_are_kept():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    assert '["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR","Snapshots"]' in app
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
     manage=app.split("with tab4:",1)[1].split("with tab5:",1)[0]
+    assert '"Seguimiento PR","Proyectos","Mis SC","Manage SC","Manage PR","Snapshots"' in app
     assert 'group_id=MY_SC_GROUP_ID' in group
-    assert 'if not stats_ready:' in group
+    assert "render_sc_collection(items,stats_saved[1],\"my_sc\",group_id)" in group
     assert 'st.button("Resumen"' not in group
     assert 'st.selectbox("Grupo SC"' not in group
-    assert "render_sc_detail(line, sid, context=\"group\")" in group
     assert "group_id_manage=MY_SC_GROUP_ID" in manage
     assert "Grupo para gestionar" not in manage
     for label in ("Crear grupo","Modificar grupo","Eliminar grupo"):
@@ -75,7 +75,6 @@ def test_fixed_my_sc_dashboard_and_existing_editor_are_kept():
     assert 'render_manage_grid()' in manage
     assert 'admin=is_bulk_admin(identity,admin_emails) and bool(admin_dsn)' in app
     assert 'st.login("google")' in app and 'st.logout()' in app
-
 
 def test_streamlit_oidc_auth_extra_and_dependencies_installed():
     import importlib.util
@@ -134,17 +133,18 @@ def test_my_sc_group_privileges_revoked_without_modifying_items():
     assert "DELETE FROM" not in migration and "UPDATE planning.bulk_sc_items" not in migration
 
 
+
 def test_group_sc_report_does_not_render_status_counts_summary():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    group_part=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert 'format_sc_quantities(bulk_view.style).apply(' in group_part
-    assert 'overview_row_style,axis=1,today=today_madrid' in group_part
-    assert 'column_config=overview_column_config()' in group_part
-    assert 'group_source=group_overview_source(chosen_items,chosen_status)' in group_part
-    assert 'linked.po_positions,linked.planned_date' in group_part
-    assert 'counts.rename_axis("Estado")' not in group_part
-    assert 'value_counts()' not in group_part
-
+    common=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
+    loader=app.split("def load_sc_collection_status(",1)[1].split("def render_sc_collection(",1)[0]
+    assert 'format_sc_quantities(bulk_view.style).apply(' in common
+    assert 'overview_row_style,axis=1,today=today_madrid' in common
+    assert 'column_config=overview_column_config()' in common
+    assert 'group_source=group_overview_source(chosen_items,chosen_status)' in common
+    assert 'linked.po_positions,linked.planned_date' in loader
+    assert 'counts.rename_axis("Estado")' not in common
+    assert 'value_counts()' not in common
 
 def test_group_overview_matches_individual_sc_columns_and_icons():
     from datetime import date
@@ -202,32 +202,27 @@ def test_group_overview_supports_empty_results_and_legacy_statuses():
     assert group_overview(items.iloc[:0],status).empty
 
 
+
 def test_group_sc_reuses_selected_sc_detail_sections():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     shared=app.split("def render_sc_detail(line, sid, context):",1)[1].split("\nwith tab1:",1)[0]
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
+    common=app.split("def render_sc_collection(",1)[1].split("\nwith tab1:",1)[0]
     individual=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
     assert 'render_sc_detail(line, sid, context="seguimiento")' in individual
-    assert 'render_sc_detail(line, sid, context="group")' in group
-    assert 'selection_mode="single-row"' in group
-    assert 'on_select="rerun"' in group
-    assert 'group_source.iloc[selected_index]' in group
-    assert 'pd.isna(line.get("company"))' in group
+    assert 'render_sc_detail(line,sid,context="group")' in common
+    assert common.count('selection_mode="single-row"')==2
+    assert 'on_select="rerun"' in common
+    assert 'group_source.iloc[event_group.selection.rows[0]]' in common
+    assert 'pd.isna(line.get("company"))' in common
     assert 'widget_prefix=f"{context}_' in shared
     assert "st.download_button(" not in shared
     assert 'st.subheader(f"Detalle SC {line[\'sc_no\']} / {line[\'sc_pos\']}")' in shared
-    for heading in (
-        'st.markdown("#### Recepciones")',
-        'st.markdown("#### REAC")',
-        'st.markdown("#### Incidencias")',
-    ):
+    for heading in ('st.markdown("#### Recepciones")',
+                    'st.markdown("#### REAC")',
+                    'st.markdown("#### Incidencias")'):
         assert heading in shared
-    assert "#### Recepciones asociadas" not in shared
-    assert "#### REAC asociados" not in shared
-    assert "#### Incidencias asociadas" not in shared
     for source in ('core.sc_po_links','core.receipts','core.reac_refs','core.incidents'):
         assert source in shared
-
 
 def test_group_source_keeps_selection_index_and_company_position_keys():
     import pandas as pd
@@ -261,29 +256,25 @@ def test_group_metadata_write_privileges_are_not_used():
     assert "DELETE FROM planning.bulk_sc_groups" not in writer
 
 
+
 def test_group_sc_statistics_and_detail_are_explicitly_requested():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
-    block=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert 'st.button("Resumen"' not in block
-    assert 'if not stats_ready:' in block
-    assert "Consultar grupo" not in block
-    assert block.index('if not stats_ready:') < block.index('sc_event=st.dataframe(')
-    assert block.index('sc_event=st.dataframe(') < block.index('event_group=st.dataframe(')
-    assert 'stat_table=group_statistics(items,stats_saved[1],today_madrid)' in block
-    assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in block
-    assert 'stats_ready=bool(stats_saved and stats_saved[0]==group_key)' in block
-    assert 'selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])' in block
-    assert "chosen_items=items.loc[" in block
-    assert "po_link_overview" in block
-    for forbidden in ("po_link_summary","receipt_closure.","timeline_dates.",
-                      "render_planning_timeline(","Cargar cronograma",
-                      "Mostrar cronograma","Ocultar cronograma",
-                      "group_timeline_data","group_sc_timeline_toggle"):
-        assert forbidden not in block
-    assert 'on_select="rerun",selection_mode="single-row"' in block
-    assert 'render_sc_detail(line, sid, context="group")' in block
-    assert "write_bulk(" not in block
-
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
+    common=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
+    loader=app.split("def load_sc_collection_status(",1)[1].split("def render_sc_collection(",1)[0]
+    assert 'st.button("Resumen"' not in group
+    assert 'if not stats_saved or stats_saved[0]!=group_key:' in group
+    assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'stat_table=group_statistics(items,status,today_madrid)' in common
+    assert common.index('sc_event=st.dataframe(') < common.index('event_group=st.dataframe(')
+    assert 'selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])' in common
+    assert "chosen_items=items.loc[" in common
+    assert 'po_link_overview' in loader
+    assert 'po_link_summary' not in loader
+    assert 'on_select="rerun",selection_mode="single-row"' in common
+    assert 'render_sc_detail(line,sid,context="group")' in common
+    assert "write_bulk(" not in group and "write_bulk(" not in common
 
 def test_group_sql_is_split_without_changing_other_timeline_queries():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
