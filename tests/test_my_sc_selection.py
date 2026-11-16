@@ -59,24 +59,25 @@ def test_group_selection_filters_only_target_sc_and_keeps_missing_references():
 
 def test_ui_two_widget_keys_are_independent_and_detail_is_child_only():
     app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
-    group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
-    assert '["Resumen","Seguimiento SC","Seguimiento PR","Mis SC","Manage SC","Manage PR","Snapshots"]' in app
+    group=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
+    shared=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
+    assert '["Resumen","Seguimiento SC","Seguimiento PR","Proyectos","Mis SC","Manage SC","Manage PR","Snapshots"]' in app
     assert 'st.subheader("Mis SC")' in group
     assert 'st.button("Resumen"' not in group
-    assert 'if not stats_ready:' in group
     assert 'st.selectbox("Grupo SC"' not in group
     assert "Consultar grupo" not in group
-    assert 'sc_event=st.dataframe(' in group
-    assert 'event_group=st.dataframe(' in group
-    assert group.count('on_select="rerun",selection_mode="single-row"')==2
-    assert 'key=f"my_sc_summary_{sid}_{group_id}_{selection_revision}"' in group
-    assert 'key=f"my_sc_positions_{sid}_{group_id}_{selection_revision}_{selected_sc}"' in group
-    assert 'if sc_event.selection.rows:' in group
-    assert 'if event_group.selection.rows:' in group
-    assert 'render_sc_detail(line, sid, context="group")' in group
-    assert group.index('if sc_event.selection.rows:') < group.index('if event_group.selection.rows:')
-    assert group.index('if event_group.selection.rows:') < group.index('render_sc_detail(line, sid, context="group")')
-    assert 'chosen_status=stats_saved[1].loc[' in group
-    assert 'group_source=group_overview_source(chosen_items,chosen_status)' in group
-    assert 'sc_export_button(' in group
-    assert group.count('query(')==1
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'sc_event=st.dataframe(' in shared
+    assert 'event_group=st.dataframe(' in shared
+    assert shared.count('on_select="rerun",selection_mode="single-row"')==2
+    assert 'key=f"{scope}_summary_{sid}_{collection_id}_{revision}"' in shared
+    assert 'key=f"{scope}_positions_{sid}_{collection_id}_{revision}_{selected_sc}"' in shared
+    assert 'if sc_event.selection.rows:' in shared
+    assert 'if event_group.selection.rows:' in shared
+    assert 'render_sc_detail(line,sid,context="group")' in shared
+    assert shared.index('if sc_event.selection.rows:') < shared.index('if event_group.selection.rows:')
+    assert shared.index('if event_group.selection.rows:') < shared.index('render_sc_detail(line,sid,context="group")')
+    assert 'chosen_status=status.loc[' in shared
+    assert 'group_source=group_overview_source(chosen_items,chosen_status)' in shared
+    assert 'sc_export_button(' in shared
+    assert "query(" not in shared
