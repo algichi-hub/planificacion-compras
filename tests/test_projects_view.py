@@ -87,3 +87,16 @@ def test_project_position_isolation_even_when_erp_has_cross_project_sc():
     assert summary.iloc[0]["Pend PO"]=="0/1"
     details=group_overview_source(members,first)
     assert details["sc_pos"].tolist()==["10"]
+
+
+def test_timeline_helper_default_scope_is_defined_at_import_time():
+    import ast
+    tree=ast.parse(APP)
+    functions=[n for n in tree.body if isinstance(n,ast.FunctionDef)
+               and n.name=="render_my_sc_timeline_control"]
+    assert len(functions)==1
+    defaults=functions[0].args.defaults
+    assert len(defaults)==1
+    assert isinstance(defaults[0],ast.Constant) and defaults[0].value=="my_sc"
+    assert 'sync_context(st.session_state,scope,' in APP
+    assert 'timeline_visible(st.session_state,scope)' in APP
