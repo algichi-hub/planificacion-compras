@@ -61,12 +61,13 @@ def test_pr_tab_form_is_strictly_lazy_and_detail_is_shared():
     assert 'with st.form("pr_lookup_form"):' in pr
     assert 'st.form_submit_button("Consultar PR")' in pr
     assert pr.index('if selected and selected[0]==sid:') < pr.index(
-        'matches=query(PR_LOOKUP_SQL,(sid,pr_number))')
+        'matches=query(PR_LOOKUP_BATCH_SQL,(sid,list(pr_numbers)))')
     assert pr.index('if selected and selected[0]==sid:') < pr.index(
         'render_sc_detail(line,sid,context="pr")')
     assert 'st.session_state["pr_lookup_selected"]' in pr
-    assert 'pr_input.strip()' in pr
-    assert 'pr_number.isascii() and pr_number.isdigit()' in pr
+    assert 'parse_identifiers(pr_input)' in pr
+    assert 'resolve_pr_batch(pr_numbers,matches.to_dict("records"))' in pr
     assert 'render_sc_detail(line,sid,context="pr")' in pr
+    assert 'visible_overview.insert(0,"PR"' in pr
     assert app.count("def render_sc_detail(")==1
     assert 'tab1,tab2,tab6,tab8,tab3,tab4,tab5,tab7=st.tabs(' in app
