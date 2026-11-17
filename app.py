@@ -733,12 +733,16 @@ if tab8.open:
         if not project_options:
             st.info("El snapshot seleccionado no contiene proyectos.")
         else:
+            last_key=f"project_sc_last_{sid}"
+            previous=st.session_state.get(last_key)
             chosen_project=st.selectbox(
-                "Proyecto",project_options,index=None,
+                "Proyecto",project_options,
+                index=project_options.index(previous) if previous in project_options else None,
                 placeholder="Selecciona un proyecto",
                 key=f"project_sc_select_{sid}"
             )
             if chosen_project is not None:
+                st.session_state[last_key]=chosen_project
                 project_status=load_sc_collection_status(
                     sid,project_name=chosen_project
                 )
