@@ -331,7 +331,7 @@ def test_shared_renderer_and_locked_plotly_config():
     assert "\"doubleClick\":False,\"editable\":False" in block
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in app
     assert app.count('render_planning_timeline(')==3  # function + two lazy views
-    assert app.count('on_select="rerun",selection_mode="single-row"')==3
+    assert app.count('on_select="rerun",selection_mode="single-row"')==4  # SC, PR, collection SC and position
     assert app.count('render_sc_detail(line, sid, context=')==1
     assert 'render_sc_detail(line,sid,context="group")' in app
     assert "hand_deliveries.clear()" in app
