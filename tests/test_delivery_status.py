@@ -176,7 +176,7 @@ def test_ent_alignment_is_right_with_unchanged_dynamic_width_and_shared_views():
     source=(ROOT/"app.py").read_text(encoding="utf-8")
     assert '"Ent": st.column_config.Column(width=None, alignment="right")' in source
     assert 'for name in ("Sol", "Ped", "Rec", "Apr")' in source
-    assert source.count("column_config=overview_column_config()")==2
+    assert source.count("column_config=overview_column_config()")==3  # SC, PR and shared collection
     assert 'format_sc_quantities(visible_overview.style)' in source
     assert 'format_sc_quantities(bulk_view.style)' in source
     assert 'result["Ent"] = "—"' in (ROOT/"src/sc_overview.py").read_text(encoding="utf-8")
