@@ -596,12 +596,20 @@ with tab1:
             for col,(label,value) in zip(st.columns(4),[("Líneas SC",m.n_sc),("Cobertura completa",m.completas),("Cobertura parcial",m.parciales),("Sin conciliar",m.inciertas)]):
                 col.metric(label,int(value))
 with tab2:
-    search=st.text_input("Buscar SC", "", key="sc_search",
-                         placeholder="Número exacto de SC")
-    sc_number=search.strip()
-    if not sc_number:
-        st.caption("Introduce un número de SC para visualizar todas sus posiciones.")
-    else:
+    with st.form("sc_lookup_form"):
+        search=st.text_input("Buscar SC",key="sc_search",
+                             placeholder="SC separadas por ;")
+        submitted=st.form_submit_button("Consultar SC")
+    if submitted:
+        try:
+            st.session_state["sc_lookup_selected"]=(sid,parse_identifiers(search))
+        except ValueError as exc:
+            st.session_state.pop("sc_lookup_selected",None)
+            st.warning(str(exc))
+    selected=st.session_state.get("sc_lookup_selected")
+    if selected and selected[0]==sid:
+        sc_numbers=selected[1]
+        sc_number=";".join(sc_numbers)
         # The sidebar project filter intentionally does not restrict SC lookup:
         # the user must see every position of the requested SC.
         # One row per SC position; PO/Pos may hold several linked orders.
@@ -669,7 +677,6 @@ with tab2:
                         ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,list(sc_numbers)))
                     st.session_state["sc_timeline_data"]=timeline_data
                     timeline_cached=timeline_data
-                timeline_data=ordered_sc_rows(timeline_cached,sc_numbers)
                 sc_timeline_source=overview.merge(
                     timeline_cached,on=["company","sc_no","sc_pos"],
                     how="left",sort=False,validate="one_to_one"
