@@ -28,7 +28,9 @@ from src.pr_hand_deliveries import (write_hand_delivery, normalize_pr, normalize
                                     normalize_delivery_date, normalize_nbi, duplicate_warning)
 from src.pr_batch_import import parse_pr_batch, batch_digest, batch_warnings, insert_pr_batch
 from src.pr_traceability import PR_RELATIONS_SQL, resolve_pr_relations
-from src.pr_lookup import PR_LOOKUP_SQL, resolve_pr
+from src.pr_lookup import PR_LOOKUP_SQL, PR_LOOKUP_BATCH_SQL, resolve_pr
+from src.lookup_batch import (parse_identifiers, ordered_sc_rows,
+                              resolve_pr_batch, matched_pr_positions)
 
 st.set_page_config(page_title="Planificación de compras",page_icon="📦",layout="wide")
 st.title("Planificación de compras")
@@ -610,22 +612,23 @@ with tab2:
                     s.workflow_state,linked.po_positions,linked.planned_date,linked.pr_numbers
                     FROM planning.sc_workflow_status s
                     """+po_link_overview+"""
-                    WHERE s.snapshot_id=%s AND s.sc_no=%s
+                    WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
                     ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
-                      THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
+                      THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,list(sc_numbers)))
         else:
             overview=query("""SELECT s.company,s.sc_no,s.sc_pos,s.article,s.description,
                     s.project,s.requested_qty,s.ordered_qty,s.received_qty,s.approved_qty,
                     s.coverage_state,linked.po_positions,linked.planned_date,linked.pr_numbers
                     FROM planning.v_sc_coverage s
                     """+po_link_overview+"""
-                    WHERE s.snapshot_id=%s AND s.sc_no=%s
+                    WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
                     ORDER BY s.company, CASE WHEN btrim(s.sc_pos) ~ '^[0-9]+$'
-                      THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,sc_number))
+                      THEN btrim(s.sc_pos)::numeric END NULLS LAST,s.sc_pos""",(sid,list(sc_numbers)))
+        overview=ordered_sc_rows(overview,sc_numbers)
         if overview.empty:
-            st.info("No se encontraron posiciones para esa SC en el snapshot seleccionado.")
+            st.info("No se encontraron posiciones para las SC indicadas en el snapshot seleccionado.")
         else:
-            st.caption(f"SC {sc_number} · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
+            st.caption(f"{len(sc_numbers)} SC consultadas · {len(overview)} posiciones. Selecciona una fila para ver su detalle.")
             st.caption("PO/Pos muestra todos los pedidos asociados. fecha_plan corresponde a la fecha planificada más próxima entre ellos. Para Material sin recibir: rojo si vencida, amarillo si faltan de 0 a 7 días naturales y verde si faltan más de 7 días.")
             # Preserve the original result for exact company/SC/position lookup.
             # The displayed DataFrame adds a status-symbol column without altering selection.
@@ -641,10 +644,10 @@ with tab2:
                 key=f"sc_overview_{sid}_{sc_number}",
             )
             sc_export_button(visible_overview,
-                             f"seguimiento_sc_{sc_number}_snapshot_{sid}.csv",
+                             f"seguimiento_sc_snapshot_{sid}.csv",
                              f"export_sc_{sid}_{sc_number}")
             # State belongs only to this SC and snapshot, not Group SC.
-            sync_context(st.session_state,"sc",(sid,sc_number))
+            sync_context(st.session_state,"sc",(sid,sc_numbers))
             st.button(
                 "Ocultar cronograma" if timeline_visible(st.session_state,"sc")
                 else "Mostrar cronograma",key="sc_timeline_toggle",
@@ -662,10 +665,11 @@ with tab2:
                         receipt_closure.receipt_events
                         FROM {source_table} s
                         """+po_link_summary+"""
-                        WHERE s.snapshot_id=%s AND s.sc_no=%s
-                        ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,sc_number))
+                        WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
+                        ORDER BY s.company,s.sc_no,s.sc_pos""",(sid,list(sc_numbers)))
                     st.session_state["sc_timeline_data"]=timeline_data
                     timeline_cached=timeline_data
+                timeline_data=ordered_sc_rows(timeline_cached,sc_numbers)
                 sc_timeline_source=overview.merge(
                     timeline_cached,on=["company","sc_no","sc_pos"],
                     how="left",sort=False,validate="one_to_one"
@@ -682,6 +686,8 @@ with tab2:
             if selected_rows:
                 line=overview.iloc[selected_rows[0]]
                 render_sc_detail(line, sid, context="seguimiento")
+    elif not submitted:
+        st.caption("Introduce una o varias SC separadas por ; y pulsa Consultar SC.")
 
 # Shared, read-only group catalogue. Admin privileges are evaluated only in Manage.
 try:
@@ -1271,29 +1277,52 @@ with tab5:
 with tab6:
     st.subheader("Seguimiento PR")
     with st.form("pr_lookup_form"):
-        pr_input=st.text_input("Número exacto de PR",key="pr_lookup_input")
+        pr_input=st.text_input("Número exacto de PR",key="pr_lookup_input",
+                               placeholder="PR separados por ;")
         submitted=st.form_submit_button("Consultar PR")
     if submitted:
-        pr_number=pr_input.strip()
-        st.session_state["pr_lookup_selected"]=(
-            (sid,pr_number) if pr_number.isascii() and pr_number.isdigit()
-            and 0 < len(pr_number) <= 30 else None
-        )
-        if st.session_state["pr_lookup_selected"] is None:
-            st.warning("Introduce un número de PR válido.")
+        try:
+            st.session_state["pr_lookup_selected"]=(sid,parse_identifiers(pr_input))
+        except ValueError as exc:
+            st.session_state.pop("pr_lookup_selected",None)
+            st.warning(str(exc))
     selected=st.session_state.get("pr_lookup_selected")
     if selected and selected[0]==sid:
-        pr_number=selected[1]
-        matches=query(PR_LOOKUP_SQL,(sid,pr_number))
-        line,issue=resolve_pr(matches.to_dict("records"))
-        if issue:
+        pr_numbers=selected[1]
+        matches=query(PR_LOOKUP_BATCH_SQL,(sid,list(pr_numbers)))
+        owners,issues=resolve_pr_batch(pr_numbers,matches.to_dict("records"))
+        for issue in issues:
             st.warning(issue)
-        else:
-            st.caption(f"PR {pr_number} · Pedido/Pos {line['po_no']}/{line['po_pos']} "
-                       f"· SC {line['sc_no']}/{line['sc_pos']}")
-            render_sc_detail(line,sid,context="pr")
+        if owners:
+            sc_numbers=tuple(dict.fromkeys(row["sc_no"] for row in owners))
+            positions=load_sc_collection_status(sid,numbers=list(sc_numbers))
+            resolved=matched_pr_positions(owners,positions)
+            if resolved.empty:
+                st.warning("No se encontraron posiciones SC para los PR verificados.")
+            else:
+                resolved=enrich_delivery_status(resolved,sid)
+                visible_overview=overview_display(resolved)
+                visible_overview.insert(0,"PR",resolved["PR"].to_numpy())
+                visible_overview=visible_overview.drop(columns="PRs")
+                madrid_today=datetime.now(ZoneInfo("Europe/Madrid")).date()
+                st.caption(f"{len(resolved)} asociaciones PR/SC. Selecciona una fila para ver su detalle.")
+                event=st.dataframe(
+                    format_sc_quantities(visible_overview.style).apply(
+                        overview_row_style,axis=1,today=madrid_today
+                    ),use_container_width=True,hide_index=True,
+                    column_config=overview_column_config(),
+                    on_select="rerun",selection_mode="single-row",
+                    key=f"pr_overview_{sid}_{'_'.join(pr_numbers)}",
+                )
+                sc_export_button(
+                    visible_overview,f"seguimiento_pr_snapshot_{sid}.csv",
+                    f"export_pr_{sid}_{'_'.join(pr_numbers)}"
+                )
+                if event.selection.rows:
+                    line=resolved.iloc[event.selection.rows[0]]
+                    render_sc_detail(line,sid,context="pr")
     elif not submitted:
-        st.caption("Introduce un PR y pulsa Consultar PR para ver su Detalle SC.")
+        st.caption("Introduce uno o varios PR separados por ; y pulsa Consultar PR.")
 
 
 # Lazy administration: no snapshot statistics queries while other tabs are open.
