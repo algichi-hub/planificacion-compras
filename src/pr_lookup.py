@@ -14,6 +14,13 @@ ORDER BY r.po_no,r.po_pos,l.company,l.sc_no,l.sc_pos,l.allocation_status,s.workf
 """
 
 
+# Batch lookup preserves the exact legacy verification rules without copying SQL.
+PR_LOOKUP_BATCH_SQL = (PR_LOOKUP_SQL
+    .replace("SELECT DISTINCT r.po_no", "SELECT DISTINCT r.receipt_no,r.po_no")
+    .replace("r.receipt_no=%s", "r.receipt_no=ANY(%s)")
+    .replace("ORDER BY r.po_no", "ORDER BY r.receipt_no,r.po_no"))
+
+
 def resolve_pr(rows):
     """Return (verified SC row, diagnostic); never guess among multiple links."""
     if not rows:
