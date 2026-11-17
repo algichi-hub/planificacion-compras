@@ -17,7 +17,8 @@ def test_projects_tab_position_and_lazy_catalogue_reuse():
     assert 'if tab8.open:' in APP
     assert 'project_options=projects["project"].astype(str).tolist()' in APP
     assert 'key=f"project_sc_select_{sid}"' in APP
-    assert '"Proyecto",project_options,index=None,' in APP
+    assert '"Proyecto",project_options,' in APP
+    assert 'index=project_options.index(previous) if previous in project_options else None,' in APP
     assert 'if chosen_project is not None:' in APP
     assert APP.index('if chosen_project is not None:') < APP.index('sid,project_name=chosen_project')
     projects=APP.split("if tab8.open:",1)[1].split("with tab4:",1)[0]
@@ -103,3 +104,16 @@ def test_timeline_helper_default_scope_is_defined_at_import_time():
     assert isinstance(defaults[0],ast.Constant) and defaults[0].value=="my_sc"
     assert 'sync_context(st.session_state,scope,' in APP
     assert 'timeline_visible(st.session_state,scope)' in APP
+
+
+def test_projects_restore_last_selection_without_new_queries_or_shared_state():
+    block=APP.split("if tab8.open:",1)[1].split("with tab4:",1)[0]
+    assert 'last_key=f"project_sc_last_{sid}"' in block
+    assert 'previous=st.session_state.get(last_key)' in block
+    assert 'st.session_state[last_key]=chosen_project' in block
+    assert block.index('st.session_state[last_key]=chosen_project') < block.index(
+        'project_status=load_sc_collection_status(')
+    assert 'if chosen_project is not None:' in block
+    assert block.count('load_sc_collection_status(')==1
+    assert 'query(' not in block
+    assert 'project_sc_select_{sid}' in block
