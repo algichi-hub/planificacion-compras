@@ -84,7 +84,7 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     common=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
     helper=app.split("def render_my_sc_timeline_control(",1)[1].split("def render_planning_timeline(",1)[0]
     loader=app.split("def load_sc_collection_status(",1)[1].split("def render_sc_collection(",1)[0]
-    assert 'sync_context(st.session_state,"sc",(sid,sc_number))' in sc
+    assert 'sync_context(st.session_state,"sc",(sid,sc_numbers))' in sc
     assert '"Ocultar cronograma" if timeline_visible(st.session_state,"sc")' in sc
     assert 'else "Mostrar cronograma",key="sc_timeline_toggle"' in sc
     assert 'on_click=toggle_timeline,args=(st.session_state,"sc")' in sc
@@ -205,7 +205,7 @@ def test_same_source_fields_and_renderer_for_both_lazy_views():
     end="ORDER BY s.company,s.sc_no,s.sc_pos"
     sc_query=sc.split('timeline_data=query(f"""',1)[1].split(end,1)[0]
     my_query=helper.split('timeline_cached=query(f"""',1)[1].split(end,1)[0]
-    assert ''.join(sc_query.split())==''.join(my_query.split())
+    assert ''.join(sc_query.split()).replace('s.sc_no=ANY(%s)','s.sc_no=%s')==''.join(my_query.split())
     assert 'if not timeline_visible(st.session_state,scope):\n        return' in helper
     assert helper.index('if not timeline_visible(') < helper.index("timeline_cached=query(")
     assert 'render_planning_timeline(timeline_source,today,' in helper
