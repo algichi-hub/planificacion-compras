@@ -1,0 +1,5 @@
+CREATE SCHEMA IF NOT EXISTS audit;
+CREATE TABLE IF NOT EXISTS audit.schema_migrations (
+  name TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

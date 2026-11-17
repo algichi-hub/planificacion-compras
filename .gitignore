@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.streamlit/secrets.toml
+entrada/*
+!entrada/.gitkeep
+informes/*
+!informes/.gitkeep
+logs/*
+!logs/.gitkeep
+*.duckdb
+*.xlsx
+*.csv
+*.zip
