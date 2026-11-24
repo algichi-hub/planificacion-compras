@@ -165,9 +165,9 @@ def run_import(args):
     extra_path=root/"RecepcionesTotales.csv"
     if extra_path.is_file():
         hashes["RecepcionesTotales.csv"]=sha256(extra_path)
-    connstr=os.environ.get("DATABASE_URL")
+    connstr=os.environ.get("COMPRAS_DATABASE_URL")
     if not connstr:
-        raise SystemExit("Set DATABASE_URL outside the repository")
+        raise SystemExit("Set COMPRAS_DATABASE_URL outside the repository")
     with psycopg.connect(connstr) as db:
         previous=matching_validated_snapshot(db,hashes,cutoff)
     if previous is not None:
