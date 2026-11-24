@@ -160,9 +160,9 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.confirm is not None and args.delete is None:
         raise SystemExit("--confirm is only allowed with --delete")
-    dsn = os.environ.get("DATABASE_URL")
+    dsn = os.environ.get("COMPRAS_DATABASE_URL")
     if not dsn:
-        raise SystemExit("DATABASE_URL is not configured")
+        raise SystemExit("COMPRAS_DATABASE_URL is not configured")
     with psycopg.connect(dsn) as conn:
         if args.list:
             list_snapshots(conn)
