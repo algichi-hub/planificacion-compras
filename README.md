@@ -17,7 +17,7 @@ Aplicación Streamlit + PostgreSQL 18 para **cobertura de SC por cantidades reci
 py -3 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-$env:DATABASE_URL = "postgresql://..."  # conexión guardada fuera de Git
+$env:COMPRAS_DATABASE_URL = "postgresql://..."  # solo CLI; almacenarla fuera de Git
 python -m pytest -q
 ```
 No publicar nunca credenciales en el repositorio.
