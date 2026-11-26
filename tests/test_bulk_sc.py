@@ -210,7 +210,8 @@ def test_group_sc_reuses_selected_sc_detail_sections():
     individual=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
     assert 'render_sc_detail(line, sid, context="seguimiento")' in individual
     assert 'render_sc_detail(line,sid,context="group")' in common
-    assert common.count('selection_mode="single-row"')==2
+    assert common.count('selection_mode="single-row"')==1
+    assert 'selection_mode="multi-row" if allow_multi else "single-row"' in common
     assert 'on_select="rerun"' in common
     assert 'group_source.iloc[event_group.selection.rows[0]]' in common
     assert 'pd.isna(line.get("company"))' in common
