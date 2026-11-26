@@ -146,7 +146,7 @@ def test_group_frontend_has_stats_only_and_sc_timeline_unchanged():
     sc=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
     assert 'st.button("Resumen"' not in group
     assert 'if not stats_saved or stats_saved[0]!=group_key:' in group
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in group
     assert 'stat_table=group_statistics(items,status,today_madrid)' in common
     assert common.index("sc_event=st.dataframe(") < common.index("event_group=st.dataframe(")
     assert "render_planning_timeline(" not in group
