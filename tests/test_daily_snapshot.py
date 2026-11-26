@@ -59,31 +59,53 @@ def test_explicit_from_compatible_and_period_mutually_exclusive(tmp_path):
 
 
 class FakeCursor:
-    def __init__(self,row):
+    def __init__(self, row, known_hashes=None):
         self.row=row
+        self.known_hashes=known_hashes
         self.calls=[]
     def __enter__(self):return self
     def __exit__(self,*args):return False
-    def execute(self,sql):
-        self.calls.append(sql)
+    def execute(self,sql,params):
+        import json
+        self.calls.append((sql,params))
+        assert "state='validated'" in sql
+        assert "source_hashes=%s::jsonb" in sql
+        assert "sc_approved_from" not in sql
+        assert "importer_revision" not in sql
+        if self.known_hashes is not None:
+            self.row=(13,) if json.loads(params[0])==self.known_hashes else None
     def fetchone(self):return self.row
 
 
 class FakeConn:
-    def __init__(self,row):self.cursor_obj=FakeCursor(row)
+    def __init__(self,row,known_hashes=None):
+        self.cursor_obj=FakeCursor(row,known_hashes)
     def cursor(self):return self.cursor_obj
 
 
-def test_only_latest_validated_matching_sources_skips():
-    from scripts.import_snapshot import IMPORTER_REVISION
+def test_existing_validated_hashes_skip_regardless_of_period_revision_or_date():
     hashes={"SC_FAS.csv":"one","INC_FAS.csv":"two",
             "Recepciones_Sevilla.csv":"three","RecepcionesTotales.csv":"four"}
-    db=FakeConn((12,hashes,IMPORTER_REVISION,date(2025,11,12)))
-    assert matching_validated_snapshot(db,hashes,date(2025,11,12))==12
-    assert "state='validated'" in db.cursor_obj.calls[0]
+    conn=FakeConn((26,))
+    assert matching_validated_snapshot(conn,hashes,date(2025,11,24))==26
+    assert matching_validated_snapshot(conn,hashes,date(2025,11,25))==26
+    assert matching_validated_snapshot(conn,hashes,None)==26
+    sql,params=conn.cursor_obj.calls[0]
+    import json
+    assert json.loads(params[0])==hashes
+    assert "ORDER BY id DESC LIMIT 1" in sql
+    assert "sc_approved_from" not in sql
+    assert "importer_revision" not in sql
     assert matching_validated_snapshot(FakeConn(None),hashes,None) is None
-    assert matching_validated_snapshot(FakeConn((12,dict(hashes,**{"INC_FAS.csv":"new"}),IMPORTER_REVISION,date(2025,11,12))),hashes,date(2025,11,12)) is None
-    assert matching_validated_snapshot(FakeConn((12,hashes,"old-importer",date(2025,11,12))),hashes,date(2025,11,12)) is None
+
+
+def test_hashes_change_import_is_not_skipped():
+    hashes={"SC_FAS.csv":"same","INC_FAS.csv":"old"}
+    conn=FakeConn(None,known_hashes=hashes)
+    assert matching_validated_snapshot(conn,hashes,date(2025,11,25))==13
+    assert matching_validated_snapshot(
+        conn,{**hashes,"INC_FAS.csv":"new"},date(2025,11,25)
+    ) is None
 
 
 def test_skip_gate_before_any_snapshot_insert_or_csv_parsing():
@@ -103,15 +125,14 @@ def test_identical_sources_skip_before_writes_or_csv_scan(tmp_path,monkeypatch):
         (tmp_path/name).write_bytes(name.encode())
     monkeypatch.setattr(mod,"prepare_inputs",lambda folder:False)
     monkeypatch.setattr(mod,"sha256",lambda path:str(path.name))
-    monkeypatch.setenv("DATABASE_URL","fake")
+    monkeypatch.setenv("COMPRAS_DATABASE_URL","fake")
     events=[]
     monkeypatch.setattr(mod,"log_event",lambda *args,**kwargs:events.append((args,kwargs)))
     snapshot_hashes={name:name for name in (*mod.SOURCES,"RecepcionesTotales.csv")}
-    from scripts.import_snapshot import IMPORTER_REVISION
     class Connection(FakeConn):
         def __enter__(self):return self
         def __exit__(self,*args):return False
-    conn=Connection((13,snapshot_hashes,IMPORTER_REVISION,date.today()-timedelta(days=365)))
+    conn=Connection((26,),known_hashes=snapshot_hashes)
     monkeypatch.setattr(mod.psycopg,"connect",lambda dsn:conn)
     monkeypatch.setattr(mod,"approved_sc_selection",
                         lambda *args:pytest.fail("CSV should not be parsed"))
@@ -121,9 +142,25 @@ def test_identical_sources_skip_before_writes_or_csv_scan(tmp_path,monkeypatch):
     assert any(a[1]=="SNAPSHOT_SKIPPED" for a,k in events)
 
 
-def test_same_hashes_but_different_cutoff_must_import():
-    from scripts.import_snapshot import IMPORTER_REVISION
-    hashes={"SC_FAS.csv":"same"}
-    conn=FakeConn((13,hashes,IMPORTER_REVISION,date(2026,1,1)))
-    assert matching_validated_snapshot(conn,hashes,date(2025,11,12)) is None
-    assert "ORDER BY id DESC" in conn.cursor_obj.calls[0]
+def test_next_day_same_zip_still_skips_and_never_reads_source_rows(tmp_path,monkeypatch):
+    from scripts import import_snapshot as mod
+    archive=tmp_path/"planificacion-compras.zip"
+    archive.write_bytes(b"unchanged encrypted archive")
+    for name in (*mod.SOURCES,"RecepcionesTotales.csv"):
+        (tmp_path/name).write_bytes(name.encode())
+    monkeypatch.setattr(mod,"prepare_inputs",lambda folder:False)
+    monkeypatch.setattr(mod,"sha256",lambda path:str(path.name))
+    monkeypatch.setenv("COMPRAS_DATABASE_URL","fake")
+    class Connection(FakeConn):
+        def __enter__(self):return self
+        def __exit__(self,*args):return False
+    known={name:name for name in (*mod.SOURCES,"RecepcionesTotales.csv")}
+    conn=Connection((26,),known_hashes=known)
+    monkeypatch.setattr(mod.psycopg,"connect",lambda dsn:conn)
+    monkeypatch.setattr(mod,"log_event",lambda *args,**kwargs:None)
+    monkeypatch.setattr(mod,"approved_sc_selection",
+                        lambda *args:pytest.fail("No rescan for unchanged ZIP"))
+    args=SimpleNamespace(date=None,from_date=None,period=365,input=str(tmp_path))
+    assert mod.run_import(args) is None
+    assert mod.run_import(args) is None
+    assert len(conn.cursor_obj.calls)==2  # one read-only DB lookup per invocation
