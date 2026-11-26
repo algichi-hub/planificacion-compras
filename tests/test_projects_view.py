@@ -43,7 +43,8 @@ def test_single_parameterized_project_filter_and_reuse_of_common_projection():
 
 def test_common_renderer_has_two_independent_sc_selectors_and_detail():
     shared=APP.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
-    assert shared.count('on_select="rerun",selection_mode="single-row"')==2
+    assert shared.count('on_select="rerun",selection_mode="single-row"')==1
+    assert 'selection_mode="multi-row" if allow_multi else "single-row"' in shared
     assert 'key=f"{scope}_summary_' in shared
     assert 'key=f"{scope}_positions_' in shared
     assert 'render_sc_detail(line,sid,context="group")' in shared
