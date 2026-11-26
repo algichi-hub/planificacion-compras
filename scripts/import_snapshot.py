@@ -81,14 +81,14 @@ def resolve_import_dates(args, archive, today=None):
 
 
 def matching_validated_snapshot(conn, hashes, cutoff):
-    """Read only the latest validated snapshot; never trust staging as imported."""
+    """Skip an already validated source set, regardless of rolling cutoff."""
     with conn.cursor() as cur:
-        cur.execute("""SELECT id,source_hashes,importer_revision,sc_approved_from
-                       FROM audit.snapshots WHERE state='validated'
-                       ORDER BY id DESC LIMIT 1""")
-        last=cur.fetchone()
-    return (last[0] if last and last[1]==hashes
-            and last[2]==IMPORTER_REVISION and last[3]==cutoff else None)
+        cur.execute("""SELECT id FROM audit.snapshots
+                       WHERE state='validated' AND source_hashes=%s::jsonb
+                       ORDER BY id DESC LIMIT 1""",
+                    (__import__("json").dumps(hashes),))
+        match=cur.fetchone()
+    return match[0] if match else None
 
 
 def approved_sc_selection(path, cutoff):
