@@ -323,15 +323,15 @@ def render_my_sc_timeline_control(source, snapshot_id, group_id, revision, sc_nu
             receipt_closure.receipt_events
             FROM {source_table} s
             """+po_link_summary+"""
-            WHERE s.snapshot_id=%s AND s.sc_no=%s
-            ORDER BY s.company,s.sc_no,s.sc_pos""",(snapshot_id,sc_number))
+            WHERE s.snapshot_id=%s AND s.sc_no=ANY(%s)
+            ORDER BY s.company,s.sc_no,s.sc_pos""",(snapshot_id,sc_number.split(";")))
         st.session_state[f"{scope}_timeline_data"]=timeline_cached
     timeline_source=source.loc[source["sc_pos"].notna()].merge(
         timeline_cached,on=["company","sc_no","sc_pos"],
         how="left",sort=False,validate="one_to_one"
     )
     timeline_source.attrs["physical_ledger"]=hand_deliveries()
-    timeline_source.attrs["receipt_links"]=_receipt_links_for_sc(snapshot_id,(sc_number,))
+    timeline_source.attrs["receipt_links"]=_receipt_links_for_sc(snapshot_id,tuple(sc_number.split(";")))
     render_planning_timeline(timeline_source,today,f"{scope}_{snapshot_id}_{sc_number}")
 
 
@@ -517,7 +517,7 @@ def load_sc_collection_status(snapshot_id, *, numbers=None, project_name=None):
                        s.sc_pos""",(snapshot_id,argument))
 
 
-def render_sc_collection(items, status, scope, collection_id):
+def render_sc_collection(items, status, scope, collection_id, allow_multi=False):
     """Same two-level SC browsing for Mis SC and project-scoped inventories."""
     context=(sid,collection_id,tuple(items["sc_no"].astype(str)))
     revision=sync_my_sc_context(st.session_state,context,scope=scope)
@@ -534,13 +534,14 @@ def render_sc_collection(items, status, scope, collection_id):
             **{name:st.column_config.TextColumn(name,width="small")
                for name in ("Pend PO","Pass Date","Full Received","Full Approved")},
         },
-        on_select="rerun",selection_mode="single-row",
+        on_select="rerun",selection_mode="multi-row" if allow_multi else "single-row",
         key=f"{scope}_summary_{sid}_{collection_id}_{revision}",
     )
     if sc_event.selection.rows:
-        selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])
-        chosen_items=items.loc[items["sc_no"].astype(str).eq(selected_sc)]
-        chosen_status=status.loc[status["sc_no"].astype(str).eq(selected_sc)]
+        selected_scs=tuple(stat_table.iloc[sorted(sc_event.selection.rows)]["Num SC"].astype(str))
+        selected_sc=";".join(selected_scs)
+        chosen_items=items.loc[items["sc_no"].astype(str).isin(selected_scs)]
+        chosen_status=status.loc[status["sc_no"].astype(str).isin(selected_scs)]
         group_source=group_overview_source(chosen_items,chosen_status)
         group_source=enrich_delivery_status(group_source,sid)
         bulk_view=overview_display(group_source)
@@ -722,7 +723,7 @@ with tab3:
                 )
                 st.session_state["group_statistics_result"]=(group_key,group_status)
                 stats_saved=st.session_state["group_statistics_result"]
-            render_sc_collection(items,stats_saved[1],"my_sc",group_id)
+            render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)
 
 
 # Loading the project report is independent and only runs when its tab is open.
