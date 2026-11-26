@@ -265,14 +265,14 @@ def test_group_sc_statistics_and_detail_are_explicitly_requested():
     assert 'st.button("Resumen"' not in group
     assert 'if not stats_saved or stats_saved[0]!=group_key:' in group
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in group
     assert 'stat_table=group_statistics(items,status,today_madrid)' in common
     assert common.index('sc_event=st.dataframe(') < common.index('event_group=st.dataframe(')
-    assert 'selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])' in common
+    assert 'selected_scs=tuple(stat_table.iloc[sorted(sc_event.selection.rows)]["Num SC"].astype(str))' in common
     assert "chosen_items=items.loc[" in common
     assert 'po_link_overview' in loader
     assert 'po_link_summary' not in loader
-    assert 'on_select="rerun",selection_mode="single-row"' in common
+    assert 'on_select="rerun",selection_mode="multi-row" if allow_multi else "single-row"' in common
     assert 'render_sc_detail(line,sid,context="group")' in common
     assert "write_bulk(" not in group and "write_bulk(" not in common
 
