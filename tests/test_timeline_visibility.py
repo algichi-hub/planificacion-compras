@@ -97,7 +97,7 @@ def test_no_query_or_plot_until_visible_in_both_sections():
     assert "po_link_summary" not in before_toggle
     assert "render_planning_timeline(" not in before_toggle
     assert 'if not stats_saved or stats_saved[0]!=group_key:' in group
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in group
     assert 'sc_event=st.dataframe(' in common
     assert 'if sc_event.selection.rows:' in common
     assert 'st.session_state["group_statistics_result"]=(group_key,group_status)' in group
@@ -205,7 +205,7 @@ def test_same_source_fields_and_renderer_for_both_lazy_views():
     end="ORDER BY s.company,s.sc_no,s.sc_pos"
     sc_query=sc.split('timeline_data=query(f"""',1)[1].split(end,1)[0]
     my_query=helper.split('timeline_cached=query(f"""',1)[1].split(end,1)[0]
-    assert ''.join(sc_query.split()).replace('s.sc_no=ANY(%s)','s.sc_no=%s')==''.join(my_query.split())
+    assert ''.join(sc_query.split())==''.join(my_query.split())
     assert 'if not timeline_visible(st.session_state,scope):\n        return' in helper
     assert helper.index('if not timeline_visible(') < helper.index("timeline_cached=query(")
     assert 'render_planning_timeline(timeline_source,today,' in helper
