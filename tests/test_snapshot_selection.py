@@ -111,7 +111,7 @@ def test_snapshot_selection_does_not_modify_db_or_change_erp():
     app=(ROOT/"app.py").read_text(encoding="utf-8")
     assert 'render_planning_timeline(sc_timeline_source,madrid_today' in app
     assert 'stat_table=group_statistics(items,status,today_madrid)' in app
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in app
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in app
 
 
 
