@@ -87,6 +87,6 @@ def test_both_views_share_pr_projection_export_and_selection():
     assert common.count('selection_mode="single-row"')==2
     assert "render_sc_detail(line, sid" in sc
     assert 'render_sc_detail(line,sid,context="group")' in common
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in group
     assert "data=sc_overview_csv(view)" in app
 
