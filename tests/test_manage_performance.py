@@ -51,6 +51,6 @@ def test_no_new_polling_or_database_writes_in_group_report():
     group=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     assert "write_bulk(" not in group
     assert "items=group_items(group_id)" in group
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in group
     assert "st.dataframe(" in app.split('def render_sc_collection(',1)[1].split('with tab1:',1)[0]
     assert "st_autorefresh" not in app
