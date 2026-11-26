@@ -66,10 +66,11 @@ def test_ui_two_widget_keys_are_independent_and_detail_is_child_only():
     assert 'st.button("Resumen"' not in group
     assert 'st.selectbox("Grupo SC"' not in group
     assert "Consultar grupo" not in group
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in group
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in group
     assert 'sc_event=st.dataframe(' in shared
     assert 'event_group=st.dataframe(' in shared
-    assert shared.count('on_select="rerun",selection_mode="single-row"')==2
+    assert 'on_select="rerun",selection_mode="multi-row" if allow_multi else "single-row"' in shared
+    assert shared.count('on_select="rerun",selection_mode="single-row"')==1
     assert 'key=f"{scope}_summary_{sid}_{collection_id}_{revision}"' in shared
     assert 'key=f"{scope}_positions_{sid}_{collection_id}_{revision}_{selected_sc}"' in shared
     assert 'if sc_event.selection.rows:' in shared
@@ -78,6 +79,51 @@ def test_ui_two_widget_keys_are_independent_and_detail_is_child_only():
     assert shared.index('if sc_event.selection.rows:') < shared.index('if event_group.selection.rows:')
     assert shared.index('if event_group.selection.rows:') < shared.index('render_sc_detail(line,sid,context="group")')
     assert 'chosen_status=status.loc[' in shared
+    assert '.isin(selected_scs)' in shared
+    assert 'selected_sc=";".join(selected_scs)' in shared
     assert 'group_source=group_overview_source(chosen_items,chosen_status)' in shared
     assert 'sc_export_button(' in shared
     assert "query(" not in shared
+
+
+def test_multi_selection_aggregates_in_favorite_order_without_duplicate_positions():
+    items=pd.DataFrame([
+        {"sc_no":"300","context_description":"third"},
+        {"sc_no":"100","context_description":"first"},
+        {"sc_no":"200","context_description":"second"},
+        {"sc_no":"999","context_description":"missing"},
+    ])
+    status=pd.DataFrame([
+        {"company":"210","sc_no":"100","sc_pos":"10","workflow_state":"Completado"},
+        {"company":"210","sc_no":"100","sc_pos":"20","workflow_state":"Completado"},
+        {"company":"210","sc_no":"300","sc_pos":"10","workflow_state":"Completado"},
+        {"company":"210","sc_no":"200","sc_pos":"10","workflow_state":"Completado"},
+    ])
+    selected_scs=("300","100","999")
+    chosen_items=items.loc[items["sc_no"].astype(str).isin(selected_scs)]
+    chosen_status=status.loc[status["sc_no"].astype(str).isin(selected_scs)]
+    result=group_overview_source(chosen_items,chosen_status)
+    assert list(zip(result["sc_no"],result["sc_pos"].fillna("—")))==[
+        ("300","10"),("100","10"),("100","20"),("999","—")
+    ]
+    assert "200" not in result["sc_no"].tolist()
+    assert not result.loc[result["sc_no"].eq("999"),"sc_pos"].notna().any()
+
+
+def test_multi_selection_isolated_from_projects_and_lazy_db_calls():
+    app=(Path(__file__).resolve().parents[1]/"app.py").read_text(encoding="utf-8")
+    shared=app.split("def render_sc_collection(",1)[1].split("with tab1:",1)[0]
+    mis=app.split("with tab3:",1)[1].split("if tab8.open:",1)[0]
+    proj=app.split("if tab8.open:",1)[1].split("with tab4:",1)[0]
+    assert "allow_multi=False" in app
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in mis
+    assert 'project_items,project_status,"project_sc",chosen_project' in proj
+    assert "allow_multi=True" not in proj
+    assert 'selected_scs=tuple(stat_table.iloc[sorted(sc_event.selection.rows)]' in shared
+    assert 'key=f"{scope}_positions_{sid}_{collection_id}_{revision}_{selected_sc}"' in shared
+    assert 'render_my_sc_timeline_control(' in shared
+    assert "query(" not in shared
+    helper=app.split("def render_my_sc_timeline_control(",1)[1].split("def render_planning_timeline(",1)[0]
+    assert 's.sc_no=ANY(%s)' in helper
+    assert 'sc_number.split(";")' in helper
+    assert helper.index('if not timeline_visible(') < helper.index('timeline_cached=query(')
