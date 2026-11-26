@@ -164,7 +164,7 @@ def test_app_reconciles_at_view_time_and_does_not_write_erp():
     assert "format_sc_quantities(visible_overview.style)" in app
     assert "format_sc_quantities(bulk_view.style)" in app
     assert '"Ent"' in app
-    assert 'selected_sc=str(stat_table.iloc[sc_event.selection.rows[0]]["Num SC"])' in app
+    assert 'selected_scs=tuple(stat_table.iloc[sorted(sc_event.selection.rows)]["Num SC"].astype(str))' in app
     assert 'group_source=group_overview_source(chosen_items,chosen_status)' in app
     assert "UPDATE core." not in app
     assert "query.clear()" not in app
