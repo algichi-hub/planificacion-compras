@@ -63,7 +63,7 @@ def test_fixed_my_sc_dashboard_and_existing_editor_are_kept():
     manage=app.split("with tab4:",1)[1].split("with tab5:",1)[0]
     assert '"Seguimiento PR","Proyectos","Mis SC","Manage SC","Manage PR","Snapshots"' in app
     assert 'group_id=MY_SC_GROUP_ID' in group
-    assert "render_sc_collection(items,stats_saved[1],\"my_sc\",group_id)" in group
+    assert "render_sc_collection(items,stats_saved[1],\"my_sc\",group_id,allow_multi=True)" in group
     assert 'st.button("Resumen"' not in group
     assert 'st.selectbox("Grupo SC"' not in group
     assert "group_id_manage=MY_SC_GROUP_ID" in manage
