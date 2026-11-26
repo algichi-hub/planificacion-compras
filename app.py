@@ -547,7 +547,7 @@ def render_sc_collection(items, status, scope, collection_id, allow_multi=False)
         bulk_view=overview_display(group_source)
         missing=group_source["sc_pos"].isna()
         bulk_view.loc[missing,"SC/Pos"]=group_source.loc[missing,"sc_no"]
-        st.markdown(f"#### Posiciones SC {selected_sc}")
+        st.markdown("#### Posiciones SC")
         st.caption(f"{len(bulk_view)} posiciones o referencias. "
                    "Selecciona una posición para consultar su detalle.")
         event_group=st.dataframe(
