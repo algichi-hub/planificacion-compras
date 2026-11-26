@@ -84,7 +84,8 @@ def test_both_views_share_pr_projection_export_and_selection():
     assert sc.index("sc_export_button") > sc.index("event=st.dataframe(")
     assert common.index("sc_export_button") > common.index("event_group=st.dataframe(")
     assert 'selection_mode="single-row"' in sc
-    assert common.count('selection_mode="single-row"')==2
+    assert common.count('selection_mode="single-row"')==1
+    assert 'selection_mode="multi-row" if allow_multi else "single-row"' in common
     assert "render_sc_detail(line, sid" in sc
     assert 'render_sc_detail(line,sid,context="group")' in common
     assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in group
