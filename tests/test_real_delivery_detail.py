@@ -71,7 +71,7 @@ def test_both_sc_views_share_real_delivery_section_without_download_or_write():
     individual=app.split("with tab2:",1)[1].split("with tab3:",1)[0]
     grouped=app.split("with tab3:",1)[1].split("with tab4:",1)[0]
     assert 'render_sc_detail(line, sid, context="seguimiento")' in individual
-    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id)' in grouped
+    assert 'render_sc_collection(items,stats_saved[1],"my_sc",group_id,allow_multi=True)' in grouped
     assert 'render_sc_detail(line,sid,context="group")' in app
     assert 'st.markdown("#### Entrega real")' in shared
     assert 'related_prs=linked_receipt_numbers(trace)' in shared
